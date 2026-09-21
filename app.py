@@ -2,254 +2,335 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 import customtkinter as ctk
+from datetime import datetime
 
-ctk.set_appearance_mode("System")
+ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
 
-class AutoPartsApp(ctk.CTk):
+class SuperPOSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Gestion de Stock & Ventes - Pièces Auto")
-        self.geometry("1100x700")
+        self.title("CarOps Auto - SUPER_POS لإدارة قطع غيار السيارات")
+        self.geometry("1150x720")
+        
         self.init_db()
         self.cart = []
-        self.create_widgets()
+        
+        self.setup_ui()
 
     def init_db(self):
-        self.conn = sqlite3.connect("autoparts.db")
+        self.conn = sqlite3.connect("super_pos.db")
         self.cursor = self.conn.cursor()
+        
+        # جدول المنتجات معدل ليشمل تفاصيل غيار السيارات (السيارة، المحرك، القطعة، السنة)
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pieces (
+            CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                reference TEXT UNIQUE,
-                nom TEXT,
+                barcode TEXT UNIQUE,
+                part_name TEXT,
+                car_model TEXT,
+                engine_type TEXT,
+                year INTEGER,
                 prix_achat REAL,
                 prix_vente REAL,
-                quantite INTEGER,
-                emplacement TEXT
+                stock INTEGER
             )
         ''')
+        
+        # جدول المبيعات
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS compatibilites (
+            CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                piece_id INTEGER,
-                marque TEXT,
-                modele TEXT,
-                moteur TEXT,
-                annee INTEGER,
-                FOREIGN KEY (piece_id) REFERENCES pieces (id)
+                date_vente TEXT,
+                total_vente REAL,
+                total_profit REAL,
+                methode_paiement TEXT
             )
         ''')
+        
+        # جدول تفاصيل الفاتورة
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sale_details (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id INTEGER,
+                product_id INTEGER,
+                quantite INTEGER,
+                prix_unitaire REAL,
+                FOREIGN KEY(sale_id) REFERENCES sales(id)
+            )
+        ''')
+        
         self.conn.commit()
 
-    def create_widgets(self):
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
-        self.tab_search = self.tabview.add("Recherche & Vente")
-        self.tab_add = self.tabview.add("Ajouter Pièce / Compatibilité")
-        self.setup_search_tab()
-        self.setup_add_tab()
+    def setup_ui(self):
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-    def setup_search_tab(self):
-        search_frame = ctk.CTkFrame(self.tab_search)
-        search_frame.pack(fill="x", padx=10, pady=10)
+        # الشريط الجانبي (Sidebar)
+        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
 
-        ctk.CTkLabel(search_frame, text="Marque:").grid(row=0, column=0, padx=5, pady=5)
-        self.entry_search_marque = ctk.CTkEntry(search_frame, placeholder_text="ex: Renault")
-        self.entry_search_marque.grid(row=0, column=1, padx=5, pady=5)
+        title_lbl = ctk.CTkLabel(self.sidebar, text="CarOps Auto", font=("Arial", 22, "bold"))
+        title_lbl.pack(pady=20)
 
-        ctk.CTkLabel(search_frame, text="Modèle:").grid(row=0, column=2, padx=5, pady=5)
-        self.entry_search_modele = ctk.CTkEntry(search_frame, placeholder_text="ex: Symbol")
-        self.entry_search_modele.grid(row=0, column=3, padx=5, pady=5)
+        self.btn_pos = ctk.CTkButton(self.sidebar, text="نقطة البيع (POS)", command=self.show_pos_tab)
+        self.btn_pos.pack(pady=10, padx=15, fill="x")
 
-        ctk.CTkLabel(search_frame, text="Moteur:").grid(row=1, column=0, padx=5, pady=5)
-        self.entry_search_moteur = ctk.CTkEntry(search_frame, placeholder_text="ex: 1.2 16V")
-        self.entry_search_moteur.grid(row=1, column=1, padx=5, pady=5)
+        self.btn_products = ctk.CTkButton(self.sidebar, text="إضافة قطعة غيار", command=self.show_products_tab)
+        self.btn_products.pack(pady=10, padx=15, fill="x")
 
-        ctk.CTkLabel(search_frame, text="Année:").grid(row=1, column=2, padx=5, pady=5)
-        self.entry_search_annee = ctk.CTkEntry(search_frame, placeholder_text="ex: 2015")
-        self.entry_search_annee.grid(row=1, column=3, padx=5, pady=5)
+        self.btn_reports = ctk.CTkButton(self.sidebar, text="التقارير والأرباح", command=self.show_reports_tab)
+        self.btn_reports.pack(pady=10, padx=15, fill="x")
 
-        btn_search = ctk.CTkButton(search_frame, text="Rechercher", command=self.rechercher_pieces)
-        btn_search.grid(row=0, column=4, rowspan=2, padx=15, pady=5)
+        # الحاوية الرئيسية (Main Container)
+        self.main_container = ctk.CTkFrame(self, corner_radius=0)
+        self.main_container.grid(row=0, column=1, sticky="nsew")
 
-        result_frame = ctk.CTkFrame(self.tab_search)
-        result_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.show_pos_tab()
 
-        columns = ("id", "reference", "nom", "prix", "quantite", "emplacement")
-        self.tree_results = ttk.Treeview(result_frame, columns=columns, show="headings")
-        self.tree_results.heading("id", text="ID")
-        self.tree_results.heading("reference", text="Référence")
-        self.tree_results.heading("nom", text="Nom de Pièce")
-        self.tree_results.heading("prix", text="Prix Vente (DZD)")
-        self.tree_results.heading("quantite", text="En Stock")
-        self.tree_results.heading("emplacement", text="Emplacement")
-        self.tree_results.column("id", width=40)
-        self.tree_results.pack(fill="both", expand=True, side="left")
+    def clear_container(self):
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
 
-        action_frame = ctk.CTkFrame(self.tab_search)
-        action_frame.pack(fill="x", padx=10, pady=10)
+    # --- 1. قسم نقطة البيع (POS) ---
+    def show_pos_tab(self):
+        self.clear_container()
 
-        btn_add_cart = ctk.CTkButton(action_frame, text="Ajouter au Panier", command=self.ajouter_panier)
-        btn_add_cart.pack(side="left", padx=10)
+        left_frame = ctk.CTkFrame(self.main_container, width=380)
+        left_frame.pack(side="left", fill="both", padx=10, pady=10)
 
-        btn_checkout = ctk.CTkButton(action_frame, text="Valider & Imprimer", fg_color="green", command=self.valider_vente)
-        btn_checkout.pack(side="right", padx=10)
+        right_frame = ctk.CTkFrame(self.main_container)
+        right_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-    def rechercher_pieces(self):
-        for item in self.tree_results.get_children():
-            self.tree_results.delete(item)
+        # شريط البحث بالسيارة أو اسم القطعة أو المحرك أو الباركود
+        search_lbl = ctk.CTkLabel(right_frame, text="بحث (اسم القطعة، السيارة، المحرك، أو الباركود):", font=("Arial", 14))
+        search_lbl.pack(anchor="ne", padx=10, pady=5)
 
-        marque = self.entry_search_marque.get().strip()
-        modele = self.entry_search_modele.get().strip()
-        moteur = self.entry_search_moteur.get().strip()
-        annee = self.entry_search_annee.get().strip()
+        self.barcode_entry = ctk.CTkEntry(right_frame, placeholder_text="ابحث بالباركود، اسم القطعة، الموديل، المحرك...")
+        self.barcode_entry.pack(fill="x", padx=10, pady=5)
+        self.barcode_entry.bind("<KeyRelease>", self.filter_products)
 
-        query = '''
-            SELECT DISTINCT p.id, p.reference, p.nom, p.prix_vente, p.quantite, p.emplacement 
-            FROM pieces p
-            JOIN compatibilites c ON p.id = c.piece_id
-            WHERE 1=1
-        '''
-        params = []
-        if marque:
-            query += " AND c.marque LIKE ?"
-            params.append(f"%{marque}%")
-        if modele:
-            query += " AND c.modele LIKE ?"
-            params.append(f"%{modele}%")
-        if moteur:
-            query += " AND c.moteur LIKE ?"
-            params.append(f"%{moteur}%")
-        if annee:
-            query += " AND c.annee = ?"
-            params.append(annee)
+        # جدول عرض قطع الغيار
+        columns = ("id", "barcode", "part_name", "car_model", "engine", "year", "prix", "stock")
+        self.pos_tree = ttk.Treeview(right_frame, columns=columns, show="headings", height=15)
+        self.pos_tree.heading("id", text="ID")
+        self.pos_tree.heading("barcode", text="الباركود")
+        self.pos_tree.heading("part_name", text="القطعة")
+        self.pos_tree.heading("car_model", text="السيارة")
+        self.pos_tree.heading("engine", text="المحرك")
+        self.pos_tree.heading("year", text="العام")
+        self.pos_tree.heading("prix", text="السعر (DZD)")
+        self.pos_tree.heading("stock", text="المخزون")
 
-        self.cursor.execute(query, params)
-        rows = self.cursor.fetchall()
-        for row in rows:
-            self.tree_results.insert("", "end", values=row)
+        self.pos_tree.column("id", width=30)
+        self.pos_tree.column("barcode", width=90)
+        self.pos_tree.column("part_name", width=110)
+        self.pos_tree.column("car_model", width=100)
+        self.pos_tree.column("engine", width=80)
+        self.pos_tree.column("year", width=50)
+        self.pos_tree.column("prix", width=80)
+        self.pos_tree.column("stock", width=60)
 
-    def ajouter_panier(self):
-        selected = self.tree_results.selection()
+        self.pos_tree.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        btn_add_cart = ctk.CTkButton(right_frame, text="إضافة إلى السلة", command=self.add_selected_to_cart)
+        btn_add_cart.pack(pady=5)
+
+        # قسم سلة المشتريات
+        ctk.CTkLabel(left_frame, text="سلة المشتريات", font=("Arial", 18, "bold")).pack(pady=10)
+
+        self.cart_tree = ttk.Treeview(left_frame, columns=("name", "qty", "total"), show="headings", height=10)
+        self.cart_tree.heading("name", text="القطعة / السيارة")
+        self.cart_tree.heading("qty", text="الكمية")
+        self.cart_tree.heading("total", text="المجموع")
+        self.cart_tree.column("name", width=180)
+        self.cart_tree.column("qty", width=50)
+        self.cart_tree.column("total", width=90)
+        self.cart_tree.pack(fill="both", expand=True, padx=10, pady=5)
+
+        self.lbl_total = ctk.CTkLabel(left_frame, text="الصافي: 0.00 DZD", font=("Arial", 16, "bold"), text_color="green")
+        self.lbl_total.pack(pady=10)
+
+        btn_pay = ctk.CTkButton(left_frame, text="دفع وطباعة", fg_color="green", font=("Arial", 16, "bold"), command=self.process_payment)
+        btn_pay.pack(fill="x", padx=15, pady=10)
+
+        self.load_pos_products()
+
+    def load_pos_products(self, query=""):
+        for item in self.pos_tree.get_children():
+            self.pos_tree.delete(item)
+        
+        if query:
+            q = f"%{query}%"
+            self.cursor.execute("""
+                SELECT id, barcode, part_name, car_model, engine_type, year, prix_vente, stock 
+                FROM products 
+                WHERE barcode LIKE ? OR part_name LIKE ? OR car_model LIKE ? OR engine_type LIKE ? OR year LIKE ?
+            """, (q, q, q, q, q))
+        else:
+            self.cursor.execute("SELECT id, barcode, part_name, car_model, engine_type, year, prix_vente, stock FROM products")
+            
+        for row in self.cursor.fetchall():
+            self.pos_tree.insert("", "end", values=row)
+
+    def filter_products(self, event):
+        query = self.barcode_entry.get().strip()
+        self.load_pos_products(query)
+
+    def add_selected_to_cart(self):
+        selected = self.pos_tree.selection()
         if not selected:
-            messagebox.showwarning("Attention", "Veuillez sélectionner une pièce.")
             return
-        item = self.tree_results.item(selected[0])
-        values = item['values']
-        if values[4] <= 0:
-            messagebox.showerror("Erreur", "Stock épuisé pour cette pièce!")
+        item = self.pos_tree.item(selected[0])['values']
+        
+        if item[7] <= 0:
+            messagebox.showerror("خطأ", "هذه القطعة غير متوفرة في المخزون!")
             return
-        self.cart.append(values)
-        messagebox.showinfo("Panier", f"Pièce '{values[2]}' ajoutée au panier.")
 
-    def valider_vente(self):
+        self.cursor.execute("SELECT prix_achat FROM products WHERE id = ?", (item[0],))
+        pa = self.cursor.fetchone()[0]
+        
+        display_name = f"{item[2]} ({item[3]} {item[4]})"
+        self.cart.append({'id': item[0], 'name': display_name, 'prix': item[6], 'prix_achat': pa, 'qty': 1})
+        self.update_cart_display()
+
+    def update_cart_display(self):
+        for item in self.cart_tree.get_children():
+            self.cart_tree.delete(item)
+            
+        total = 0
+        for item in self.cart:
+            subtotal = item['prix'] * item['qty']
+            total += subtotal
+            self.cart_tree.insert("", "end", values=(item['name'], item['qty'], subtotal))
+            
+        self.lbl_total.configure(text=f"الصافي: {total:.2f} DZD")
+
+    def process_payment(self):
         if not self.cart:
-            messagebox.showwarning("Panier Vide", "Aucune pièce dans le panier.")
+            messagebox.showwarning("تنبيه", "السلة فارغة!")
             return
 
-        choice_window = ctk.CTkToplevel(self)
-        choice_window.title("Format d'impression")
-        choice_window.geometry("350x180")
-        choice_window.grab_set()
+        total_vente = sum(item['prix'] * item['qty'] for item in self.cart)
+        total_achat = sum(item['prix_achat'] * item['qty'] for item in self.cart)
+        profit = total_vente - total_achat
+        date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        ctk.CTkLabel(choice_window, text="Choisissez le format d'impression:").pack(pady=15)
+        self.cursor.execute("INSERT INTO sales (date_vente, total_vente, total_profit, methode_paiement) VALUES (?, ?, ?, ?)",
+                            (date_now, total_vente, profit, "نقداً"))
+        sale_id = self.cursor.lastrowid
 
-        def traiter_impression(fmt):
-            for item in self.cart:
-                piece_id = item[0]
-                self.cursor.execute("UPDATE pieces SET quantite = quantite - 1 WHERE id = ?", (piece_id,))
-            self.conn.commit()
+        for item in self.cart:
+            self.cursor.execute("INSERT INTO sale_details (sale_id, product_id, quantite, prix_unitaire) VALUES (?, ?, ?, ?)",
+                                (sale_id, item['id'], item['qty'], item['prix']))
+            self.cursor.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item['qty'], item['id']))
 
-            messagebox.showinfo("Succès", f"Vente enregistrée! Impression au format [{fmt}] en cours...")
-            self.cart.clear()
-            choice_window.destroy()
-            self.rechercher_pieces()
+        self.conn.commit()
+        messagebox.showinfo("نجاح", f"تم تسجيل الفاتورة بنجاح!\nالربح الصافي: {profit:.2f} DZD")
+        self.cart.clear()
+        self.update_cart_display()
+        self.load_pos_products()
 
-        ctk.CTkButton(choice_window, text="Ticket de Caisse (80mm)", command=lambda: traiter_impression("Ticket 80mm")).pack(pady=5)
-        ctk.CTkButton(choice_window, text="Facture Papier (A4 / A5)", command=lambda: traiter_impression("A4/A5")).pack(pady=5)
+    # --- 2. قسم إدخال قطعة غيار جديدة ---
+    def show_products_tab(self):
+        self.clear_container()
 
-    def setup_add_tab(self):
-        frame = ctk.CTkFrame(self.tab_add)
+        frame = ctk.CTkFrame(self.main_container)
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        ctk.CTkLabel(frame, text="Référence:").grid(row=0, column=0, padx=5, pady=5)
-        self.ent_ref = ctk.CTkEntry(frame)
-        self.ent_ref.grid(row=0, column=1, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="إضافة قطعة غيار جديدة", font=("Arial", 18, "bold")).grid(row=0, column=0, columnspan=4, pady=15)
 
-        ctk.CTkLabel(frame, text="Nom de Pièce:").grid(row=0, column=2, padx=5, pady=5)
-        self.ent_nom = ctk.CTkEntry(frame)
-        self.ent_nom.grid(row=0, column=3, padx=5, pady=5)
+        # الحقول الخاصة بقطع غيار السيارات
+        ctk.CTkLabel(frame, text="اسم القطعة (مثلاً: Démarreur, Alternateur):").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+        ent_part = ctk.CTkEntry(frame, width=200)
+        ent_part.grid(row=1, column=1, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Prix Achat:").grid(row=1, column=0, padx=5, pady=5)
-        self.ent_p_achat = ctk.CTkEntry(frame)
-        self.ent_p_achat.grid(row=1, column=1, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="اسم / موديل السيارة (مثلاً: Golf 7, Symbol):").grid(row=1, column=2, padx=10, pady=10, sticky="e")
+        ent_car = ctk.CTkEntry(frame, width=200)
+        ent_car.grid(row=1, column=3, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Prix Vente:").grid(row=1, column=2, padx=5, pady=5)
-        self.ent_p_vente = ctk.CTkEntry(frame)
-        self.ent_p_vente.grid(row=1, column=3, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="نوع المحرك (مثلاً: 2.0 TDI, 1.2 Essence):").grid(row=2, column=0, padx=10, pady=10, sticky="e")
+        ent_engine = ctk.CTkEntry(frame, width=200)
+        ent_engine.grid(row=2, column=1, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Quantité Initial:").grid(row=2, column=0, padx=5, pady=5)
-        self.ent_qty = ctk.CTkEntry(frame)
-        self.ent_qty.grid(row=2, column=1, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="العام / السنة (مثلاً: 2018):").grid(row=2, column=2, padx=10, pady=10, sticky="e")
+        ent_year = ctk.CTkEntry(frame, width=200)
+        ent_year.grid(row=2, column=3, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Emplacement (Rayon):").grid(row=2, column=2, padx=5, pady=5)
-        self.ent_loc = ctk.CTkEntry(frame)
-        self.ent_loc.grid(row=2, column=3, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="الباركود (اختياري / ممسوح بالدوشة):").grid(row=3, column=0, padx=10, pady=10, sticky="e")
+        ent_bc = ctk.CTkEntry(frame, width=200)
+        ent_bc.grid(row=3, column=1, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="--- Compatibilité Véhicule ---", font=("Arial", 14, "bold")).grid(row=3, column=0, columnspan=4, pady=15)
+        ctk.CTkLabel(frame, text="الكمية بالحيّز:").grid(row=3, column=2, padx=10, pady=10, sticky="e")
+        ent_stock = ctk.CTkEntry(frame, width=200)
+        ent_stock.grid(row=3, column=3, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Marque:").grid(row=4, column=0, padx=5, pady=5)
-        self.ent_c_marque = ctk.CTkEntry(frame)
-        self.ent_c_marque.grid(row=4, column=1, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="سعر الشراء (DZD):").grid(row=4, column=0, padx=10, pady=10, sticky="e")
+        ent_pa = ctk.CTkEntry(frame, width=200)
+        ent_pa.grid(row=4, column=1, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Modèle:").grid(row=4, column=2, padx=5, pady=5)
-        self.ent_c_modele = ctk.CTkEntry(frame)
-        self.ent_c_modele.grid(row=4, column=3, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="سعر البيع (DZD):").grid(row=4, column=2, padx=10, pady=10, sticky="e")
+        ent_pv = ctk.CTkEntry(frame, width=200)
+        ent_pv.grid(row=4, column=3, padx=10, pady=10)
 
-        ctk.CTkLabel(frame, text="Moteur:").grid(row=5, column=0, padx=5, pady=5)
-        self.ent_c_moteur = ctk.CTkEntry(frame)
-        self.ent_c_moteur.grid(row=5, column=1, padx=5, pady=5)
+        def save_product():
+            try:
+                bc = ent_bc.get().strip()
+                part = ent_part.get().strip()
+                car = ent_car.get().strip()
+                engine = ent_engine.get().strip()
+                year = int(ent_year.get().strip()) if ent_year.get().strip() else 0
+                pa = float(ent_pa.get())
+                pv = float(ent_pv.get())
+                stock = int(ent_stock.get())
 
-        ctk.CTkLabel(frame, text="Année:").grid(row=5, column=2, padx=5, pady=5)
-        self.ent_c_annee = ctk.CTkEntry(frame)
-        self.ent_c_annee.grid(row=5, column=3, padx=5, pady=5)
+                self.cursor.execute("""
+                    INSERT INTO products (barcode, part_name, car_model, engine_type, year, prix_achat, prix_vente, stock) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (bc, part, car, engine, year, pa, pv, stock))
+                
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم حفظ قطعة الغيار بنجاح!")
+            except Exception as e:
+                messagebox.showerror("خطأ", f"تعذر الحفظ: {e}")
 
-        btn_save = ctk.CTkButton(frame, text="Enregistrer Pièce et Compatibilité", fg_color="green", command=self.sauvegarder_piece)
-        btn_save.grid(row=6, column=0, columnspan=4, pady=20)
+        btn_save = ctk.CTkButton(frame, text="حفظ القطعة", fg_color="green", font=("Arial", 16, "bold"), command=save_product)
+        btn_save.grid(row=5, column=0, columnspan=4, pady=25)
 
-    def sauvegarder_piece(self):
-        try:
-            ref = self.ent_ref.get().strip()
-            nom = self.ent_nom.get().strip()
-            pa = float(self.ent_p_achat.get())
-            pv = float(self.ent_p_vente.get())
-            qty = int(self.ent_qty.get())
-            loc = self.ent_loc.get().strip()
+    # --- 3. قسم التقارير والأرباح ---
+    def show_reports_tab(self):
+        self.clear_container()
 
-            marque = self.ent_c_marque.get().strip()
-            modele = self.ent_c_modele.get().strip()
-            moteur = self.ent_c_moteur.get().strip()
-            annee = int(self.ent_c_annee.get())
+        frame = ctk.CTkFrame(self.main_container)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-            self.cursor.execute('''
-                INSERT INTO pieces (reference, nom, prix_achat, prix_vente, quantite, emplacement)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (ref, nom, pa, pv, qty, loc))
+        ctk.CTkLabel(frame, text="لوحة التقارير والأرباح", font=("Arial", 20, "bold")).pack(pady=15)
 
-            piece_id = self.cursor.lastrowid
+        self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales")
+        res = self.cursor.fetchone()
+        
+        total_sales = res[0] if res[0] else 0.0
+        total_profit = res[1] if res[1] else 0.0
+        total_invoices = res[2] if res[2] else 0
 
-            self.cursor.execute('''
-                INSERT INTO compatibilites (piece_id, marque, modele, moteur, annee)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (piece_id, marque, modele, moteur, annee))
+        cards_frame = ctk.CTkFrame(frame)
+        cards_frame.pack(fill="x", pady=20)
 
-            self.conn.commit()
-            messagebox.showinfo("Succès", "Pièce ajoutée avec succès!")
+        card1 = ctk.CTkFrame(cards_frame, fg_color="#1F6AA5")
+        card1.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(card1, text="المبيعات الإجمالية", font=("Arial", 14), text_color="white").pack(pady=5)
+        ctk.CTkLabel(card1, text=f"{total_sales:.2f} DZD", font=("Arial", 18, "bold"), text_color="white").pack(pady=10)
 
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Erreur lors de l'enregistrement: {str(e)}")
+        card2 = ctk.CTkFrame(cards_frame, fg_color="#2FA572")
+        card2.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(card2, text="صافي الأرباح", font=("Arial", 14), text_color="white").pack(pady=5)
+        ctk.CTkLabel(card2, text=f"{total_profit:.2f} DZD", font=("Arial", 18, "bold"), text_color="white").pack(pady=10)
+
+        card3 = ctk.CTkFrame(cards_frame, fg_color="#E76E55")
+        card3.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(card3, text="عدد الفواتير", font=("Arial", 14), text_color="white").pack(pady=5)
+        ctk.CTkLabel(card3, text=str(total_invoices), font=("Arial", 18, "bold"), text_color="white").pack(pady=10)
 
 if __name__ == "__main__":
-    app = AutoPartsApp()
+    app = SuperPOSApp()
     app.mainloop()
