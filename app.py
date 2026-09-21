@@ -137,6 +137,11 @@ class SuperPOSApp(ctk.CTk):
         self.cart_tree.column("total", width=80)
         self.cart_tree.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # زر إزالة عنصر من السلة
+        btn_remove_cart = ctk.CTkButton(left_frame, text="🗑️ إزالة القطعة المحددة من السلة", fg_color="#f38ba8", 
+                                         hover_color="#e35b78", text_color="#11111b", font=("Arial", 12, "bold"), command=self.remove_from_cart)
+        btn_remove_cart.pack(fill="x", padx=15, pady=5)
+
         self.lbl_total = ctk.CTkLabel(left_frame, text="الإجمالي: 0.00 DZD", font=("Arial", 16, "bold"), text_color="#a6e3a1")
         self.lbl_total.pack(pady=10)
 
@@ -201,6 +206,16 @@ class SuperPOSApp(ctk.CTk):
                 return
 
         self.cart.append({'id': prod_id, 'name': display_name, 'prix': prix_vente, 'prix_achat': pa, 'qty': 1})
+        self.update_cart_display()
+
+    def remove_from_cart(self):
+        selected = self.cart_tree.selection()
+        if not selected:
+            messagebox.showwarning("تنبيه", "يرجى تحديد عنصر من سلة المشتريات لإزالته!")
+            return
+        
+        index = self.cart_tree.index(selected[0])
+        del self.cart[index]
         self.update_cart_display()
 
     def update_cart_display(self):
@@ -323,7 +338,7 @@ class SuperPOSApp(ctk.CTk):
                                 font=("Arial", 14, "bold"), hover_color="#94e2d5", command=save_or_update_product)
         btn_save.grid(row=5, column=0, columnspan=4, pady=15)
 
-        ctk.CTkLabel(bottom_frame, text="قائمة المخزون الحالية - تعديل شحن الكميات المنتهية", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=5)
+        ctk.CTkLabel(bottom_frame, text="قائمة المخزون الحالية - تعديل أو حذف القطع", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=5)
 
         columns = ("id", "part_name", "car_model", "engine", "year", "prix_vente", "stock")
         manage_tree = ttk.Treeview(bottom_frame, columns=columns, show="headings", height=8)
@@ -348,7 +363,27 @@ class SuperPOSApp(ctk.CTk):
         quick_edit_frame = ctk.CTkFrame(bottom_frame, fg_color="transparent")
         quick_edit_frame.pack(fill="x", pady=5)
 
-        ctk.CTkLabel(quick_edit_frame, text="إعادة شحن سريعة للقطعة المحددة:").pack(side="right", padx=10)
+        def delete_selected_product():
+            selected = manage_tree.selection()
+            if not selected:
+                messagebox.showwarning("تنبيه", "يرجى تحديد قطعة من الجدول لحذفها!")
+                return
+            
+            item = manage_tree.item(selected[0])['values']
+            prod_id = item[0]
+            part_name = item[1]
+            
+            confirm = messagebox.askyesno("تأكيد الحذف", f"هل أنت تأكد من رغبتك في حذف القطعة '{part_name}' نهائياً من المخزون؟")
+            if confirm:
+                self.cursor.execute("DELETE FROM products WHERE id = ?", (prod_id,))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم حذف القطعة من المخزون بنجاح!")
+                load_manage_products()
+
+        btn_delete = ctk.CTkButton(quick_edit_frame, text="🗑️ حذف القطعة المحددة", fg_color="#f38ba8", hover_color="#e35b78", text_color="#11111b", font=("Arial", 12, "bold"), command=delete_selected_product)
+        btn_delete.pack(side="left", padx=10)
+
+        ctk.CTkLabel(quick_edit_frame, text="إعادة شحن سريعة:").pack(side="right", padx=10)
         ent_quick_qty = ctk.CTkEntry(quick_edit_frame, width=100, placeholder_text="+الكمية")
         ent_quick_qty.pack(side="right", padx=5)
 
