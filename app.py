@@ -53,7 +53,7 @@ class SuperPOSApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # الشريط الجانبي الفاخر
+        # الشريط الجانبي
         self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color="#1e1e2e")
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
@@ -169,18 +169,38 @@ class SuperPOSApp(ctk.CTk):
     def add_selected_to_cart(self):
         selected = self.pos_tree.selection()
         if not selected:
+            messagebox.showwarning("تنبيه", "يرجى تحديد قطعة من الجدول أولاً!")
             return
+            
         item = self.pos_tree.item(selected[0])['values']
         
-        if item[7] <= 0:
+        prod_id = int(item[0])
+        part_name = str(item[2])
+        car_model = str(item[3])
+        engine = str(item[4])
+        prix_vente = float(item[6])
+        stock = int(item[7])
+        
+        if stock <= 0:
             messagebox.showerror("خطأ", "القطعة غير متوفرة في المخزون! يرجى إعادة شحن المخزون أولاً.")
             return
 
-        self.cursor.execute("SELECT prix_achat FROM products WHERE id = ?", (item[0],))
-        pa = self.cursor.fetchone()[0]
+        self.cursor.execute("SELECT prix_achat FROM products WHERE id = ?", (prod_id,))
+        res = self.cursor.fetchone()
+        pa = res[0] if res else 0.0
         
-        display_name = f"{item[2]} ({item[3]} {item[4]})"
-        self.cart.append({'id': item[0], 'name': display_name, 'prix': item[6], 'prix_achat': pa, 'qty': 1})
+        display_name = f"{part_name} ({car_model} {engine})"
+        
+        for cart_item in self.cart:
+            if cart_item['id'] == prod_id:
+                if cart_item['qty'] + 1 > stock:
+                    messagebox.showwarning("تنبيه", "الكمية المطلوبة تتجاوز المخزون المتاح!")
+                    return
+                cart_item['qty'] += 1
+                self.update_cart_display()
+                return
+
+        self.cart.append({'id': prod_id, 'name': display_name, 'prix': prix_vente, 'prix_achat': pa, 'qty': 1})
         self.update_cart_display()
 
     def update_cart_display(self):
@@ -191,7 +211,7 @@ class SuperPOSApp(ctk.CTk):
         for item in self.cart:
             subtotal = item['prix'] * item['qty']
             total += subtotal
-            self.cart_tree.insert("", "end", values=(item['name'], item['qty'], subtotal))
+            self.cart_tree.insert("", "end", values=(item['name'], item['qty'], f"{subtotal:.2f}"))
             
         self.lbl_total.configure(text=f"الإجمالي: {total:.2f} DZD")
 
@@ -217,7 +237,7 @@ class SuperPOSApp(ctk.CTk):
         self.update_cart_display()
         self.load_pos_products()
 
-    # --- 2. قسم إدخال وتعديل المخزون ---
+    # --- 2. قسم إدارة المخزون ---
     def show_products_tab(self):
         self.clear_container()
 
@@ -272,7 +292,6 @@ class SuperPOSApp(ctk.CTk):
                 pv = float(ent_pv.get())
                 add_qty = int(ent_stock.get())
 
-                # البحث أولاً إذا كانت القطعة موجودة مسبقاً (بالباركود أو بالطراز)
                 self.cursor.execute("""
                     SELECT id, stock FROM products 
                     WHERE (barcode != '' AND barcode = ?) OR (part_name = ? AND car_model = ? AND engine_type = ?)
@@ -280,7 +299,6 @@ class SuperPOSApp(ctk.CTk):
                 existing = self.cursor.fetchone()
 
                 if existing:
-                    # تعديل وتكثير كمية القطعة الموجودة تلقائياً
                     prod_id, current_stock = existing
                     new_stock = current_stock + add_qty
                     self.cursor.execute("""
@@ -288,14 +306,13 @@ class SuperPOSApp(ctk.CTk):
                         SET stock = ?, prix_achat = ?, prix_vente = ?
                         WHERE id = ?
                     """, (new_stock, pa, pv, prod_id))
-                    messagebox.showinfo("تحديث", f"تم إنابة وزيادة مخزون القطعة بنجاح!\nالكمية الجديدة: {new_stock}")
+                    messagebox.showinfo("تحديث", f"تمت زيادة مخزون القطعة بنجاح!\nالكمية الجديدة: {new_stock}")
                 else:
-                    # إضافة قطعة جديدة تماماً
                     self.cursor.execute("""
                         INSERT INTO products (barcode, part_name, car_model, engine_type, year, prix_achat, prix_vente, stock) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (bc, part, car, engine, year, pa, pv, add_qty))
-                    messagebox.showinfo("نجاح", "تم حفظ القطعة الجديد بالمخزون!")
+                    messagebox.showinfo("نجاح", "تم حفظ القطعة الجديدة بالمخزون!")
 
                 self.conn.commit()
                 load_manage_products()
@@ -306,7 +323,6 @@ class SuperPOSApp(ctk.CTk):
                                 font=("Arial", 14, "bold"), hover_color="#94e2d5", command=save_or_update_product)
         btn_save.grid(row=5, column=0, columnspan=4, pady=15)
 
-        # جدول استعراض وتحديث المخزون
         ctk.CTkLabel(bottom_frame, text="قائمة المخزون الحالية - تعديل شحن الكميات المنتهية", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=5)
 
         columns = ("id", "part_name", "car_model", "engine", "year", "prix_vente", "stock")
