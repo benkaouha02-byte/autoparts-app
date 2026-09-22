@@ -5,12 +5,6 @@ import customtkinter as ctk
 from datetime import datetime, timedelta
 import os
 
-# استيراد Matplotlib لرسم المخططات البيانية
-import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
-
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
@@ -116,14 +110,13 @@ class SuperPOSApp(ctk.CTk):
         for widget in self.main_container.winfo_children():
             widget.destroy()
 
-    # --- 1. قسم لوحة التقارير بالتصميم الجديد ---
+    # --- قسم لوحة التقارير ---
     def show_reports_tab(self):
         self.clear_container()
 
         main_scroll = ctk.CTkScrollableFrame(self.main_container, fg_color="#f2f4f8")
         main_scroll.pack(fill="both", expand=True)
 
-        # 1. الهيدر وأزرار التصفية السريعة (اليوم / هذا الأسبوع / هذا الشهر)
         header_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
         header_frame.pack(fill="x", padx=20, pady=(15, 5))
 
@@ -142,11 +135,9 @@ class SuperPOSApp(ctk.CTk):
         btn_month = ctk.CTkButton(time_buttons_frame, text="هذا الشهر", font=("Arial", 12, "bold"), width=80, fg_color="#e0e0e0", text_color="#333", hover_color="#cccccc", command=lambda: self.filter_reports_by_days(30))
         btn_month.pack(side="right", padx=3)
 
-        # 2. شريط الفلاتر وأزرار التصدير
         filter_bar = ctk.CTkFrame(main_scroll, fg_color="#ffffff", corner_radius=8)
         filter_bar.pack(fill="x", padx=20, pady=10)
 
-        # أزرار التصدير (يمين)
         btn_pdf = ctk.CTkButton(filter_bar, text="طباعة PDF", fg_color="#34495e", hover_color="#2c3e50", font=("Arial", 12, "bold"), width=90)
         btn_pdf.pack(side="left", padx=10, pady=10)
 
@@ -156,7 +147,6 @@ class SuperPOSApp(ctk.CTk):
         btn_refresh = ctk.CTkButton(filter_bar, text="تحديث", fg_color="#2980b9", hover_color="#1f6391", font=("Arial", 12, "bold"), width=80, command=self.load_report_data)
         btn_refresh.pack(side="left", padx=10, pady=10)
 
-        # الفلاتر (شمال)
         combo_cashier = ctk.CTkOptionMenu(filter_bar, values=["كل الكاشير"], width=120, fg_color="#f8f9fa", text_color="#333", button_color="#ddd")
         combo_cashier.pack(side="right", padx=5, pady=10)
 
@@ -171,7 +161,6 @@ class SuperPOSApp(ctk.CTk):
         self.ent_date_to = ctk.CTkEntry(filter_bar, width=110, placeholder_text="jj/mm/aaaa", fg_color="#ffffff", text_color="#000")
         self.ent_date_to.pack(side="right", padx=5)
 
-        # 3. تبويبات الأقسام التوضيحية
         sub_tabs_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
         sub_tabs_frame.pack(fill="x", padx=20, pady=5)
 
@@ -185,87 +174,64 @@ class SuperPOSApp(ctk.CTk):
                                   corner_radius=6, height=35)
             btn_t.pack(side="right", padx=4, expand=True, fill="x")
 
-        # 4. بطاقات المؤشرات الأربع الرئيسية
         cards_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
         cards_frame.pack(fill="x", padx=20, pady=10)
 
-        # المبيعات
         self.card_sales = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
         self.card_sales.pack(side="right", expand=True, fill="both", padx=5)
         ctk.CTkLabel(self.card_sales, text="المبيعات", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
         self.lbl_sales_val = ctk.CTkLabel(self.card_sales, text="0.00", font=("Arial", 22, "bold"), text_color="#2980b9")
         self.lbl_sales_val.pack(pady=(0, 10))
 
-        # الأرباح
         self.card_profit = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
         self.card_profit.pack(side="right", expand=True, fill="both", padx=5)
         ctk.CTkLabel(self.card_profit, text="الأرباح", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
         self.lbl_profit_val = ctk.CTkLabel(self.card_profit, text="0.00", font=("Arial", 22, "bold"), text_color="#27ae60")
         self.lbl_profit_val.pack(pady=(0, 10))
 
-        # الفواتير
         self.card_invoices = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
         self.card_invoices.pack(side="right", expand=True, fill="both", padx=5)
         ctk.CTkLabel(self.card_invoices, text="الفواتير", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
         self.lbl_invoices_val = ctk.CTkLabel(self.card_invoices, text="0", font=("Arial", 22, "bold"), text_color="#2c3e50")
         self.lbl_invoices_val.pack(pady=(0, 10))
 
-        # تنبيهات المخزون
         self.card_alerts = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
         self.card_alerts.pack(side="right", expand=True, fill="both", padx=5)
         ctk.CTkLabel(self.card_alerts, text="تنبيهات المخزون", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
         self.lbl_alerts_val = ctk.CTkLabel(self.card_alerts, text="0", font=("Arial", 22, "bold"), text_color="#e74c3c")
         self.lbl_alerts_val.pack(pady=(0, 10))
 
-        # 5. المخططات البيانية (الرسم الدائري والمبيعات)
+        # المخططات المخصصة الرسم التفاعلي المباشر
         charts_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
         charts_frame.pack(fill="x", padx=20, pady=10)
 
-        # المخطط البياني الخطي / الشريطي (يمين)
         right_chart_box = ctk.CTkFrame(charts_frame, fg_color="#ffffff", corner_radius=8)
         right_chart_box.pack(side="right", expand=True, fill="both", padx=5)
 
-        fig1, ax1 = plt.subplots(figsize=(6, 3), dpi=100)
-        fig1.patch.set_facecolor('#ffffff')
-        ax1.set_facecolor('#ffffff')
-        
-        # بيانات توضيحية للمبيعات
-        days = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد']
-        sales_data = [12000, 18000, 15000, 22000, 31000, 28000, 32450]
-        
-        ax1.plot(days, sales_data, marker='o', color='#2980b9', linewidth=2)
-        ax1.spines['top'].set_visible(False)
-        ax1.spines['right'].set_visible(False)
-        ax1.spines['left'].set_color('#cccccc')
-        ax1.spines['bottom'].set_color('#cccccc')
-        ax1.tick_params(colors='#555555', labelsize=8)
-        ax1.set_title("المبيعات اليومية (DZD)", fontsize=10, color="#333333", pad=10)
+        ctk.CTkLabel(right_chart_box, text="المبيعات الأسبوعية", font=("Arial", 12, "bold"), text_color="#333").pack(pady=5)
+        canvas_line = tk.Canvas(right_chart_box, bg="#ffffff", height=180, highlightthickness=0)
+        canvas_line.pack(fill="both", expand=True, padx=10, pady=10)
 
-        canvas1 = FigureCanvasTkAgg(fig1, master=right_chart_box)
-        canvas1.draw()
-        canvas1.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        # رسم المخطط البياني المخصص
+        points = [(30, 140), (80, 110), (130, 120), (180, 80), (230, 50), (280, 60), (330, 30)]
+        for i in range(len(points) - 1):
+            canvas_line.create_line(points[i][0], points[i][1], points[i+1][0], points[i+1][1], fill="#2980b9", width=3)
+            canvas_line.create_oval(points[i][0]-4, points[i][1]-4, points[i][0]+4, points[i][1]+4, fill="#2980b9")
+        canvas_line.create_oval(points[-1][0]-4, points[-1][1]-4, points[-1][0]+4, points[-1][1]+4, fill="#2980b9")
 
-        # المخطط الدائري Donut Chart (شمال)
-        left_chart_box = ctk.CTkFrame(charts_frame, fg_color="#ffffff", corner_radius=8, width=300)
+        left_chart_box = ctk.CTkFrame(charts_frame, fg_color="#ffffff", corner_radius=8, width=280)
         left_chart_box.pack(side="left", fill="both", padx=5)
 
-        fig2, ax2 = plt.subplots(figsize=(3, 3), dpi=100)
-        fig2.patch.set_facecolor('#ffffff')
-        
-        sizes = [100]
-        colors = ['#2ecc71']
-        
-        wedges, _ = ax2.pie(sizes, colors=colors, startangle=90, wedgeprops=dict(width=0.4, edgecolor='w'))
-        ax2.legend(wedges, ['غير تصنيف'], loc="upper center", bbox_to_anchor=(0.5, 1.15), frameon=False, fontsize=8)
+        ctk.CTkLabel(left_chart_box, text="توزيع الفئات", font=("Arial", 12, "bold"), text_color="#333").pack(pady=5)
+        canvas_donut = tk.Canvas(left_chart_box, bg="#ffffff", height=180, highlightthickness=0)
+        canvas_donut.pack(fill="both", expand=True, padx=10, pady=10)
 
-        canvas2 = FigureCanvasTkAgg(fig2, master=left_chart_box)
-        canvas2.draw()
-        canvas2.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        canvas_donut.create_oval(50, 20, 190, 160, fill="#2ecc71", outline="")
+        canvas_donut.create_oval(85, 55, 155, 125, fill="#ffffff", outline="")
 
         self.load_report_data()
 
     def load_report_data(self):
-        """تحميل وتحديث قيم التقارير من قاعدة البيانات"""
         self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales")
         res = self.cursor.fetchone()
         
@@ -273,7 +239,6 @@ class SuperPOSApp(ctk.CTk):
         total_profit = res[1] if res[1] else 0.0
         total_invoices = res[2] if res[2] else 0
 
-        # التنبيهات: القطع التي شارف مخزونها على الانتهاء (أقل من 3 قطع)
         self.cursor.execute("SELECT COUNT(*) FROM products WHERE stock <= 3")
         alerts_count = self.cursor.fetchone()[0]
 
@@ -283,7 +248,6 @@ class SuperPOSApp(ctk.CTk):
         self.lbl_alerts_val.configure(text=str(alerts_count))
 
     def filter_reports_by_days(self, days_count):
-        """تصفية المبيعات حسب عدد الأيام"""
         if days_count == 0:
             query_date = datetime.now().strftime("%Y-%m-%d")
             self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales WHERE date_vente LIKE ?", (f"{query_date}%",))
@@ -300,21 +264,14 @@ class SuperPOSApp(ctk.CTk):
         self.lbl_profit_val.configure(text=f"{total_profit:.2f}")
         self.lbl_invoices_val.configure(text=str(total_invoices))
 
-    # --- باقي الأقسام ---
     def show_pos_tab(self):
         self.clear_container()
-        lbl = ctk.CTkLabel(self.main_container, text="🛒 واجهة نقطة البيع", font=("Arial", 20, "bold"))
-        lbl.pack(pady=20)
 
     def show_products_tab(self):
         self.clear_container()
-        lbl = ctk.CTkLabel(self.main_container, text="📦 واجهة إدارة المنتجات والمخزون", font=("Arial", 20, "bold"))
-        lbl.pack(pady=20)
 
     def show_settings_tab(self):
         self.clear_container()
-        lbl = ctk.CTkLabel(self.main_container, text="⚙️ واجهة الإعدادات", font=("Arial", 20, "bold"))
-        lbl.pack(pady=20)
 
 if __name__ == "__main__":
     app = SuperPOSApp()
