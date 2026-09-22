@@ -28,9 +28,9 @@ class SuperPOSApp(ctk.CTk):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 barcode TEXT UNIQUE,
                 part_name TEXT,
-                car_models TEXT,   -- السيارات المتوافقة
-                engine_types TEXT, -- المحركات المتوافقة
-                years TEXT,        -- السنوات
+                car_models TEXT,
+                engine_types TEXT,
+                years TEXT,
                 prix_achat REAL,
                 prix_vente REAL,
                 stock INTEGER
@@ -47,8 +47,35 @@ class SuperPOSApp(ctk.CTk):
                 methode_paiement TEXT
             )
         ''')
+
+        # جدول إعدادات المتجر والفاتورة
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_name TEXT,
+                phone TEXT,
+                address TEXT,
+                footer_text TEXT
+            )
+        ''')
         
+        # إدخال القيم الافتراضية إذا كانت الجدول فارغاً
+        self.cursor.execute("SELECT COUNT(*) FROM settings")
+        if self.cursor.fetchone()[0] == 0:
+            self.cursor.execute('''
+                INSERT INTO settings (store_name, phone, address, footer_text) 
+                VALUES (?, ?, ?, ?)
+            ''', ("CarOps Auto", "0700000000", "شارع فلاح عيسى، باتنة", "شكراً لزيارتكم - نترقب عودتكم"))
+            self.conn.commit()
+
         self.conn.commit()
+
+    def get_settings(self):
+        self.cursor.execute("SELECT store_name, phone, address, footer_text FROM settings LIMIT 1")
+        res = self.cursor.fetchone()
+        if res:
+            return {"store_name": res[0], "phone": res[1], "address": res[2], "footer_text": res[3]}
+        return {"store_name": "CarOps Auto", "phone": "0000000000", "address": "باتنة، الجزائر", "footer_text": "شكراً لزيارتكم"}
 
     def setup_ui(self):
         self.grid_columnconfigure(1, weight=1)
@@ -61,7 +88,7 @@ class SuperPOSApp(ctk.CTk):
         title_lbl = ctk.CTkLabel(self.sidebar, text="SUPER_POS\nCarOps Auto", font=("Arial", 20, "bold"), text_color="#89b4fa")
         title_lbl.pack(pady=25)
 
-        self.btn_pos = ctk.CTkButton(self.sidebar, text="🛒 نقطة البيع (POS)", font=("Arial", 14, "bold"), 
+        self.btn_pos = ctk.CTkButton(self.sidebar, text="🛒 نقطة البيع", font=("Arial", 14, "bold"), 
                                      fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_pos_tab)
         self.btn_pos.pack(pady=8, padx=15, fill="x")
 
@@ -72,6 +99,10 @@ class SuperPOSApp(ctk.CTk):
         self.btn_reports = ctk.CTkButton(self.sidebar, text="📊 التقارير والأرباح", font=("Arial", 14, "bold"), 
                                          fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_reports_tab)
         self.btn_reports.pack(pady=8, padx=15, fill="x")
+
+        self.btn_settings = ctk.CTkButton(self.sidebar, text="⚙️ الإعدادات", font=("Arial", 14, "bold"), 
+                                          fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_settings_tab)
+        self.btn_settings.pack(pady=8, padx=15, fill="x")
 
         # الحاوية الرئيسية
         self.main_container = ctk.CTkFrame(self, corner_radius=0, fg_color="#181825")
@@ -230,12 +261,15 @@ class SuperPOSApp(ctk.CTk):
         self.lbl_total.configure(text=f"الإجمالي: {total:.2f} DZD")
 
     def generate_receipt(self, sale_id, date_str, total_amount):
-        """دالة لإنشاء ملف نصي بالفاتورة وفتحه تلقائياً للطباعة"""
+        """إنشاء فاتورة نصية ديناميكية معتمدة على إعدادات المتجر المحفوظة"""
+        cfg = self.get_settings()
         filename = f"فاتورة_{sale_id}.txt"
         
         receipt_content = f"""
 ========================================
-             CarOps Auto
+             {cfg['store_name']}
+        العنوان: {cfg['address']}
+        الهاتف: {cfg['phone']}
          فاتورة بيع رقم: #{sale_id}
 ========================================
 التاريخ: {date_str}
@@ -250,13 +284,12 @@ class SuperPOSApp(ctk.CTk):
 الإجمالي: {total_amount:.2f} DZD
 طريقة الدفع: نقداً
 ========================================
-       شكراً لتعاملكم معنا!
+       {cfg['footer_text']}
 ========================================
 """
         with open(filename, "w", encoding="utf-8") as f:
             f.write(receipt_content)
 
-        # فتح الملف تلقائياً على نظام الويندوز لطباعته
         try:
             os.startfile(filename)
         except Exception as e:
@@ -272,18 +305,14 @@ class SuperPOSApp(ctk.CTk):
         profit = total_vente - total_achat
         date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. حفظ عملية البيع في قاعدة البيانات
         self.cursor.execute("INSERT INTO sales (date_vente, total_vente, total_profit, methode_paiement) VALUES (?, ?, ?, ?)",
                             (date_now, total_vente, profit, "نقداً"))
         sale_id = self.cursor.lastrowid
 
-        # 2. خصم الكميات المبيعة من المخزون
         for item in self.cart:
             self.cursor.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item['qty'], item['id']))
 
         self.conn.commit()
-
-        # 3. إنشاء الفاتورة وفتحها للطباعة
         self.generate_receipt(sale_id, date_now, total_vente)
 
         messagebox.showinfo("نجاح العملية", f"تم التسجيل بنجاح وإنشاء الفاتورة!\nالربح المحقق: {profit:.2f} DZD")
@@ -481,6 +510,62 @@ class SuperPOSApp(ctk.CTk):
         card3.pack(side="left", expand=True, fill="both", padx=10, pady=10)
         ctk.CTkLabel(card3, text="عدد الفواتير المكتملة", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
         ctk.CTkLabel(card3, text=str(total_invoices), font=("Arial", 18, "bold"), text_color="#f38ba8").pack(pady=10)
+
+    # --- 4. قسم الإعدادات (إعدادات المتجر والفاتورة) ---
+    def show_settings_tab(self):
+        self.clear_container()
+
+        frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        frame.pack(fill="both", expand=True, padx=30, pady=20)
+
+        ctk.CTkLabel(frame, text="⚙️ إعدادات المتجر والفاتورة", font=("Arial", 20, "bold"), text_color="#cdd6f4").pack(pady=15)
+
+        cfg = self.get_settings()
+
+        form_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        form_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        # اسم المتجر
+        ctk.CTkLabel(form_frame, text="اسم المتجر:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_store_name = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_store_name.pack(anchor="e", pady=5)
+        ent_store_name.insert(0, cfg["store_name"])
+
+        # رقم الهاتف
+        ctk.CTkLabel(form_frame, text="رقم الهاتف:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_phone = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_phone.pack(anchor="e", pady=5)
+        ent_phone.insert(0, cfg["phone"])
+
+        # العنوان
+        ctk.CTkLabel(form_frame, text="العنوان:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_address = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_address.pack(anchor="e", pady=5)
+        ent_address.insert(0, cfg["address"])
+
+        # تذيل الفاتورة
+        ctk.CTkLabel(form_frame, text="تذيل الفاتورة (الرسالة أسفل الفاتورة):", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_footer = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_footer.pack(anchor="e", pady=5)
+        ent_footer.insert(0, cfg["footer_text"])
+
+        def save_settings():
+            try:
+                s_name = ent_store_name.get().strip()
+                s_phone = ent_phone.get().strip()
+                s_addr = ent_address.get().strip()
+                s_footer = ent_footer.get().strip()
+
+                self.cursor.execute("UPDATE settings SET store_name = ?, phone = ?, address = ?, footer_text = ? WHERE id = 1",
+                                    (s_name, s_phone, s_addr, s_footer))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم حفظ إعدادات الفاتورة والمتجر بنجاح!")
+            except Exception as e:
+                messagebox.showerror("خطأ", f"تعذر الحفظ: {e}")
+
+        btn_save_settings = ctk.CTkButton(form_frame, text="💾 حفظ الإعدادات", font=("Arial", 15, "bold"), 
+                                          fg_color="#a6e3a1", text_color="#11111b", hover_color="#94e2d5", command=save_settings)
+        btn_save_settings.pack(anchor="e", pady=25)
 
 if __name__ == "__main__":
     app = SuperPOSApp()
