@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import customtkinter as ctk
 from datetime import datetime, timedelta
+import os
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -11,7 +12,7 @@ class SuperPOSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("SUPER_POS - CarOps Auto")
-        self.geometry("1300x820")
+        self.geometry("1250x780")
         
         self.init_db()
         self.cart = []
@@ -21,6 +22,7 @@ class SuperPOSApp(ctk.CTk):
         self.conn = sqlite3.connect("super_pos.db")
         self.cursor = self.conn.cursor()
         
+        # جدول المنتجات
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +37,7 @@ class SuperPOSApp(ctk.CTk):
             )
         ''')
         
+        # جدول عمليات البيع
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +48,25 @@ class SuperPOSApp(ctk.CTk):
             )
         ''')
 
+        # جدول تفاصيل العناصر المباعة في كل فاتورة
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sale_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id INTEGER,
+                product_id INTEGER,
+                part_name TEXT,
+                car_models TEXT,
+                qty INTEGER,
+                prix_vente REAL,
+                prix_achat REAL,
+                total_item_vente REAL,
+                total_item_profit REAL,
+                date_vente TEXT,
+                FOREIGN KEY(sale_id) REFERENCES sales(id)
+            )
+        ''')
+
+        # جدول إعدادات المتجر
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,11 +109,11 @@ class SuperPOSApp(ctk.CTk):
                                      fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_pos_tab)
         self.btn_pos.pack(pady=8, padx=15, fill="x")
 
-        self.btn_products = ctk.CTkButton(self.sidebar, text="📦 المنتجات والمخزون", font=("Arial", 14, "bold"), 
+        self.btn_products = ctk.CTkButton(self.sidebar, text="📦 إدارة المخزون", font=("Arial", 14, "bold"), 
                                           fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_products_tab)
         self.btn_products.pack(pady=8, padx=15, fill="x")
 
-        self.btn_reports = ctk.CTkButton(self.sidebar, text="📊 التقارير", font=("Arial", 14, "bold"), 
+        self.btn_reports = ctk.CTkButton(self.sidebar, text="📊 التقارير والأرباح", font=("Arial", 14, "bold"), 
                                          fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_reports_tab)
         self.btn_reports.pack(pady=8, padx=15, fill="x")
 
@@ -100,444 +122,586 @@ class SuperPOSApp(ctk.CTk):
         self.btn_settings.pack(pady=8, padx=15, fill="x")
 
         # الحاوية الرئيسية
-        self.main_container = ctk.CTkFrame(self, corner_radius=0, fg_color="#eff1f5")
+        self.main_container = ctk.CTkFrame(self, corner_radius=0, fg_color="#181825")
         self.main_container.grid(row=0, column=1, sticky="nsew")
 
-        self.show_reports_tab()
-
-    def update_sidebar_buttons(self, active_button):
-        for btn in [self.btn_pos, self.btn_products, self.btn_reports, self.btn_settings]:
-            btn.configure(fg_color="#313244")
-        active_button.configure(fg_color="#1e66f5")
+        self.show_pos_tab()
 
     def clear_container(self):
         for widget in self.main_container.winfo_children():
             widget.destroy()
 
-    # --- 1. قسم التقارير ---
-    def show_reports_tab(self):
-        self.update_sidebar_buttons(self.btn_reports)
-        self.clear_container()
-
-        main_scroll = ctk.CTkScrollableFrame(self.main_container, fg_color="#f2f4f8")
-        main_scroll.pack(fill="both", expand=True)
-
-        header_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
-        header_frame.pack(fill="x", padx=20, pady=(15, 5))
-
-        title_lbl = ctk.CTkLabel(header_frame, text="لوحة التقارير", font=("Arial", 22, "bold"), text_color="#2c3e50")
-        title_lbl.pack(side="right")
-
-        time_buttons_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        time_buttons_frame.pack(side="left")
-
-        btn_today = ctk.CTkButton(time_buttons_frame, text="اليوم", font=("Arial", 12, "bold"), width=80, fg_color="#e0e0e0", text_color="#333", hover_color="#cccccc", command=lambda: self.filter_reports_by_days(0))
-        btn_today.pack(side="right", padx=3)
-
-        btn_week = ctk.CTkButton(time_buttons_frame, text="هذا الأسبوع", font=("Arial", 12, "bold"), width=90, fg_color="#e0e0e0", text_color="#333", hover_color="#cccccc", command=lambda: self.filter_reports_by_days(7))
-        btn_week.pack(side="right", padx=3)
-
-        btn_month = ctk.CTkButton(time_buttons_frame, text="هذا الشهر", font=("Arial", 12, "bold"), width=80, fg_color="#e0e0e0", text_color="#333", hover_color="#cccccc", command=lambda: self.filter_reports_by_days(30))
-        btn_month.pack(side="right", padx=3)
-
-        filter_bar = ctk.CTkFrame(main_scroll, fg_color="#ffffff", corner_radius=8)
-        filter_bar.pack(fill="x", padx=20, pady=10)
-
-        btn_pdf = ctk.CTkButton(filter_bar, text="طباعة PDF", fg_color="#34495e", hover_color="#2c3e50", font=("Arial", 12, "bold"), width=90)
-        btn_pdf.pack(side="left", padx=10, pady=10)
-
-        btn_csv = ctk.CTkButton(filter_bar, text="تصدير CSV", fg_color="#27ae60", hover_color="#219150", font=("Arial", 12, "bold"), width=90)
-        btn_csv.pack(side="left", padx=5, pady=10)
-
-        btn_refresh = ctk.CTkButton(filter_bar, text="تحديث", fg_color="#2980b9", hover_color="#1f6391", font=("Arial", 12, "bold"), width=80, command=self.load_report_data)
-        btn_refresh.pack(side="left", padx=10, pady=10)
-
-        combo_cashier = ctk.CTkOptionMenu(filter_bar, values=["كل الكاشير"], width=120, fg_color="#f8f9fa", text_color="#333", button_color="#ddd")
-        combo_cashier.pack(side="right", padx=5, pady=10)
-
-        combo_payment = ctk.CTkOptionMenu(filter_bar, values=["كل طرق الدفع", "نقداً"], width=120, fg_color="#f8f9fa", text_color="#333", button_color="#ddd")
-        combo_payment.pack(side="right", padx=5, pady=10)
-
-        ctk.CTkLabel(filter_bar, text="من:", text_color="#333", font=("Arial", 12)).pack(side="right", padx=2)
-        self.ent_date_from = ctk.CTkEntry(filter_bar, width=110, placeholder_text="jj/mm/aaaa", fg_color="#ffffff", text_color="#000")
-        self.ent_date_from.pack(side="right", padx=5)
-
-        ctk.CTkLabel(filter_bar, text="إلى:", text_color="#333", font=("Arial", 12)).pack(side="right", padx=2)
-        self.ent_date_to = ctk.CTkEntry(filter_bar, width=110, placeholder_text="jj/mm/aaaa", fg_color="#ffffff", text_color="#000")
-        self.ent_date_to.pack(side="right", padx=5)
-
-        sub_tabs_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
-        sub_tabs_frame.pack(fill="x", padx=20, pady=5)
-
-        tabs = ["سجل النشاط", "الفواتير", "المخزون", "الفئات", "المنتجات", "الرئيسية"]
-        for t in tabs:
-            is_active = (t == "الرئيسية")
-            btn_t = ctk.CTkButton(sub_tabs_frame, text=t, font=("Arial", 13, "bold"),
-                                  fg_color="#2980b9" if is_active else "#ffffff",
-                                  text_color="#ffffff" if is_active else "#555555",
-                                  hover_color="#1f6391" if is_active else "#e0e0e0",
-                                  corner_radius=6, height=35)
-            btn_t.pack(side="right", padx=4, expand=True, fill="x")
-
-        cards_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
-        cards_frame.pack(fill="x", padx=20, pady=10)
-
-        self.card_sales = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
-        self.card_sales.pack(side="right", expand=True, fill="both", padx=5)
-        ctk.CTkLabel(self.card_sales, text="المبيعات", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
-        self.lbl_sales_val = ctk.CTkLabel(self.card_sales, text="0.00", font=("Arial", 22, "bold"), text_color="#2980b9")
-        self.lbl_sales_val.pack(pady=(0, 10))
-
-        self.card_profit = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
-        self.card_profit.pack(side="right", expand=True, fill="both", padx=5)
-        ctk.CTkLabel(self.card_profit, text="الأرباح", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
-        self.lbl_profit_val = ctk.CTkLabel(self.card_profit, text="0.00", font=("Arial", 22, "bold"), text_color="#27ae60")
-        self.lbl_profit_val.pack(pady=(0, 10))
-
-        self.card_invoices = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
-        self.card_invoices.pack(side="right", expand=True, fill="both", padx=5)
-        ctk.CTkLabel(self.card_invoices, text="الفواتير", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
-        self.lbl_invoices_val = ctk.CTkLabel(self.card_invoices, text="0", font=("Arial", 22, "bold"), text_color="#2c3e50")
-        self.lbl_invoices_val.pack(pady=(0, 10))
-
-        self.card_alerts = ctk.CTkFrame(cards_frame, fg_color="#ffffff", corner_radius=8)
-        self.card_alerts.pack(side="right", expand=True, fill="both", padx=5)
-        ctk.CTkLabel(self.card_alerts, text="تنبيهات المخزون", font=("Arial", 13, "bold"), text_color="#7f8c8d").pack(pady=(10, 5))
-        self.lbl_alerts_val = ctk.CTkLabel(self.card_alerts, text="0", font=("Arial", 22, "bold"), text_color="#e74c3c")
-        self.lbl_alerts_val.pack(pady=(0, 10))
-
-        charts_frame = ctk.CTkFrame(main_scroll, fg_color="transparent")
-        charts_frame.pack(fill="x", padx=20, pady=10)
-
-        right_chart_box = ctk.CTkFrame(charts_frame, fg_color="#ffffff", corner_radius=8)
-        right_chart_box.pack(side="right", expand=True, fill="both", padx=5)
-
-        ctk.CTkLabel(right_chart_box, text="المبيعات الأسبوعية", font=("Arial", 12, "bold"), text_color="#333").pack(pady=5)
-        canvas_line = tk.Canvas(right_chart_box, bg="#ffffff", height=180, highlightthickness=0)
-        canvas_line.pack(fill="both", expand=True, padx=10, pady=10)
-
-        points = [(30, 140), (80, 110), (130, 120), (180, 80), (230, 50), (280, 60), (330, 30)]
-        for i in range(len(points) - 1):
-            canvas_line.create_line(points[i][0], points[i][1], points[i+1][0], points[i+1][1], fill="#2980b9", width=3)
-            canvas_line.create_oval(points[i][0]-4, points[i][1]-4, points[i][0]+4, points[i][1]+4, fill="#2980b9")
-        canvas_line.create_oval(points[-1][0]-4, points[-1][1]-4, points[-1][0]+4, points[-1][1]+4, fill="#2980b9")
-
-        left_chart_box = ctk.CTkFrame(charts_frame, fg_color="#ffffff", corner_radius=8, width=280)
-        left_chart_box.pack(side="left", fill="both", padx=5)
-
-        ctk.CTkLabel(left_chart_box, text="توزيع الفئات", font=("Arial", 12, "bold"), text_color="#333").pack(pady=5)
-        canvas_donut = tk.Canvas(left_chart_box, bg="#ffffff", height=180, highlightthickness=0)
-        canvas_donut.pack(fill="both", expand=True, padx=10, pady=10)
-
-        canvas_donut.create_oval(50, 20, 190, 160, fill="#2ecc71", outline="")
-        canvas_donut.create_oval(85, 55, 155, 125, fill="#ffffff", outline="")
-
-        self.load_report_data()
-
-    def load_report_data(self):
-        self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales")
-        res = self.cursor.fetchone()
-        
-        total_sales = res[0] if res[0] else 0.0
-        total_profit = res[1] if res[1] else 0.0
-        total_invoices = res[2] if res[2] else 0
-
-        self.cursor.execute("SELECT COUNT(*) FROM products WHERE stock <= 3")
-        alerts_count = self.cursor.fetchone()[0]
-
-        self.lbl_sales_val.configure(text=f"{total_sales:.2f}")
-        self.lbl_profit_val.configure(text=f"{total_profit:.2f}")
-        self.lbl_invoices_val.configure(text=str(total_invoices))
-        self.lbl_alerts_val.configure(text=str(alerts_count))
-
-    def filter_reports_by_days(self, days_count):
-        if days_count == 0:
-            query_date = datetime.now().strftime("%Y-%m-%d")
-            self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales WHERE date_vente LIKE ?", (f"{query_date}%",))
-        else:
-            date_limit = (datetime.now() - timedelta(days=days_count)).strftime("%Y-%m-%d")
-            self.cursor.execute("SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales WHERE date_vente >= ?", (date_limit,))
-
-        res = self.cursor.fetchone()
-        total_sales = res[0] if res[0] else 0.0
-        total_profit = res[1] if res[1] else 0.0
-        total_invoices = res[2] if res[2] else 0
-
-        self.lbl_sales_val.configure(text=f"{total_sales:.2f}")
-        self.lbl_profit_val.configure(text=f"{total_profit:.2f}")
-        self.lbl_invoices_val.configure(text=str(total_invoices))
-
-    # --- 2. قسم نقطة البيع ---
+    # --- 1. قسم نقطة البيع (POS) ---
     def show_pos_tab(self):
-        self.update_sidebar_buttons(self.btn_pos)
         self.clear_container()
 
-        frame = ctk.CTkFrame(self.main_container, fg_color="#ffffff", corner_radius=10)
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
+        left_frame = ctk.CTkFrame(self.main_container, width=400, fg_color="#1e1e2e")
+        left_frame.pack(side="left", fill="both", padx=10, pady=10)
 
-        # اليمين: قائمة السلة
-        cart_frame = ctk.CTkFrame(frame, fg_color="#f8f9fa", width=450)
-        cart_frame.pack(side="right", fill="both", padx=10, pady=10)
+        right_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        right_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
-        ctk.CTkLabel(cart_frame, text="🛒 سلة المشتريات", font=("Arial", 16, "bold"), text_color="#333").pack(pady=10)
+        ctk.CTkLabel(right_frame, text="البحث عن قطعة غيار:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="ne", padx=10, pady=5)
 
-        columns = ("name", "qty", "price", "total")
-        self.cart_tree = ttk.Treeview(cart_frame, columns=columns, show="headings", height=15)
-        self.cart_tree.heading("name", text="اسم القطعة")
+        self.search_entry = ctk.CTkEntry(right_frame, placeholder_text="ابحث بالاسم، السيارات، المحركات، السنوات، أو الباركود...", font=("Arial", 13))
+        self.search_entry.pack(fill="x", padx=10, pady=5)
+        self.search_entry.bind("<KeyRelease>", self.filter_products)
+
+        columns = ("id", "barcode", "part_name", "car_models", "engine_types", "years", "prix", "stock")
+        self.pos_tree = ttk.Treeview(right_frame, columns=columns, show="headings", height=15)
+        
+        self.pos_tree.heading("id", text="ID")
+        self.pos_tree.heading("barcode", text="الباركود")
+        self.pos_tree.heading("part_name", text="القطعة")
+        self.pos_tree.heading("car_models", text="السيارات المتوافقة")
+        self.pos_tree.heading("engine_types", text="المحركات")
+        self.pos_tree.heading("years", text="السنوات")
+        self.pos_tree.heading("prix", text="السعر")
+        self.pos_tree.heading("stock", text="المخزون")
+
+        self.pos_tree.column("id", width=30)
+        self.pos_tree.column("barcode", width=80)
+        self.pos_tree.column("part_name", width=110)
+        self.pos_tree.column("car_models", width=140)
+        self.pos_tree.column("engine_types", width=110)
+        self.pos_tree.column("years", width=80)
+        self.pos_tree.column("prix", width=70)
+        self.pos_tree.column("stock", width=60)
+
+        self.pos_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        btn_add = ctk.CTkButton(right_frame, text="➕ إضافة القطعة لسلة البيع", font=("Arial", 14, "bold"), 
+                                fg_color="#89b4fa", text_color="#11111b", hover_color="#b4befe", command=self.add_selected_to_cart)
+        btn_add.pack(pady=8)
+
+        # سلة المشتريات
+        ctk.CTkLabel(left_frame, text="🛒 سلة المشتريات", font=("Arial", 16, "bold"), text_color="#cdd6f4").pack(pady=10)
+
+        self.cart_tree = ttk.Treeview(left_frame, columns=("name", "qty", "total"), show="headings", height=12)
+        self.cart_tree.heading("name", text="القطعة / الموديلات")
         self.cart_tree.heading("qty", text="الكمية")
-        self.cart_tree.heading("price", text="السعر")
-        self.cart_tree.heading("total", text="الإجمالي")
-        self.cart_tree.column("name", width=140)
-        self.cart_tree.column("qty", width=60)
-        self.cart_tree.column("price", width=80)
+        self.cart_tree.heading("total", text="المجموع")
+        self.cart_tree.column("name", width=190)
+        self.cart_tree.column("qty", width=50)
         self.cart_tree.column("total", width=80)
         self.cart_tree.pack(fill="both", expand=True, padx=10, pady=5)
 
-        self.lbl_cart_total = ctk.CTkLabel(cart_frame, text="المجموع: 0.00 DZD", font=("Arial", 18, "bold"), text_color="#27ae60")
-        self.lbl_cart_total.pack(pady=10)
+        btn_remove_cart = ctk.CTkButton(left_frame, text="🗑️ إزالة القطعة المحددة من السلة", fg_color="#f38ba8", 
+                                         hover_color="#e35b78", text_color="#11111b", font=("Arial", 12, "bold"), command=self.remove_from_cart)
+        btn_remove_cart.pack(fill="x", padx=15, pady=5)
 
-        btn_checkout = ctk.CTkButton(cart_frame, text="إتمام البيع وطباعة الفاتورة", font=("Arial", 14, "bold"), fg_color="#27ae60", hover_color="#219150", height=40, command=self.checkout)
-        btn_checkout.pack(fill="x", padx=10, pady=10)
+        self.lbl_total = ctk.CTkLabel(left_frame, text="الإجمالي: 0.00 DZD", font=("Arial", 16, "bold"), text_color="#a6e3a1")
+        self.lbl_total.pack(pady=10)
 
-        # اليسار: البحث والمنتجات
-        search_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        search_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-
-        ctk.CTkLabel(search_frame, text="البحث عن قطع الغيار (الاسم أو الباركود):", font=("Arial", 14, "bold"), text_color="#333").pack(anchor="e", pady=5)
-        
-        self.ent_pos_search = ctk.CTkEntry(search_frame, placeholder_text="اكتب هنا للبحث...", font=("Arial", 13), text_color="#000", fg_color="#fff", height=35)
-        self.ent_pos_search.pack(fill="x", pady=5)
-        self.ent_pos_search.bind("<KeyRelease>", self.search_pos_products)
-
-        prod_columns = ("barcode", "name", "models", "price", "stock")
-        self.pos_prod_tree = ttk.Treeview(search_frame, columns=prod_columns, show="headings")
-        self.pos_prod_tree.heading("barcode", text="الباركود")
-        self.pos_prod_tree.heading("name", text="القطعة")
-        self.pos_prod_tree.heading("models", text="السيارة")
-        self.pos_prod_tree.heading("price", text="السعر")
-        self.pos_prod_tree.heading("stock", text="المخزون")
-        self.pos_prod_tree.pack(fill="both", expand=True, pady=10)
-        self.pos_prod_tree.bind("<Double-1>", self.add_to_cart)
+        btn_pay = ctk.CTkButton(left_frame, text="💳 إتمام البيع وطباعة الفاتورة", fg_color="#a6e3a1", text_color="#11111b", 
+                                font=("Arial", 15, "bold"), hover_color="#94e2d5", command=self.process_payment)
+        btn_pay.pack(fill="x", padx=15, pady=10)
 
         self.load_pos_products()
 
     def load_pos_products(self, query=""):
-        for row in self.pos_prod_tree.get_children():
-            self.pos_prod_tree.delete(row)
+        for item in self.pos_tree.get_children():
+            self.pos_tree.delete(item)
         
         if query:
-            self.cursor.execute("SELECT barcode, part_name, car_models, prix_vente, stock FROM products WHERE part_name LIKE ? OR barcode LIKE ?", (f"%{query}%", f"%{query}%"))
+            q = f"%{query}%"
+            self.cursor.execute("""
+                SELECT id, barcode, part_name, car_models, engine_types, years, prix_vente, stock 
+                FROM products 
+                WHERE barcode LIKE ? OR part_name LIKE ? OR car_models LIKE ? OR engine_types LIKE ? OR years LIKE ?
+            """, (q, q, q, q, q))
         else:
-            self.cursor.execute("SELECT barcode, part_name, car_models, prix_vente, stock FROM products")
+            self.cursor.execute("SELECT id, barcode, part_name, car_models, engine_types, years, prix_vente, stock FROM products")
+            
+        for row in self.cursor.fetchall():
+            self.pos_tree.insert("", "end", values=row)
 
-        for p in self.cursor.fetchall():
-            self.pos_prod_tree.insert("", "end", values=p)
+    def filter_products(self, event):
+        self.load_pos_products(self.search_entry.get().strip())
 
-    def search_pos_products(self, event):
-        q = self.ent_pos_search.get().strip()
-        self.load_pos_products(q)
-
-    def add_to_cart(self, event):
-        selected = self.pos_prod_tree.selection()
+    def add_selected_to_cart(self):
+        selected = self.pos_tree.selection()
         if not selected:
+            messagebox.showwarning("تنبيه", "يرجى تحديد قطعة من الجدول أولاً!")
             return
-        item = self.pos_prod_tree.item(selected[0])["values"]
-        barcode, name, model, price, stock = item[0], item[1], item[2], float(item[3]), int(item[4])
-
+            
+        item = self.pos_tree.item(selected[0])['values']
+        
+        prod_id = int(item[0])
+        part_name = str(item[2])
+        car_models = str(item[3])
+        prix_vente = float(item[6])
+        stock = int(item[7])
+        
         if stock <= 0:
-            messagebox.showwarning("تنبيه", "هذا المنتج غير متوفر بالمخزون!")
+            messagebox.showerror("خطأ", "القطعة غير متوفرة في المخزون!")
             return
 
+        self.cursor.execute("SELECT prix_achat FROM products WHERE id = ?", (prod_id,))
+        res = self.cursor.fetchone()
+        pa = res[0] if res else 0.0
+        
+        display_name = f"{part_name} ({car_models})"
+        
         for cart_item in self.cart:
-            if cart_item["barcode"] == barcode:
-                if cart_item["qty"] + 1 > stock:
-                    messagebox.showwarning("تنبيه", "الكمية المطلوبة تتجاوز المخزون!")
+            if cart_item['id'] == prod_id:
+                if cart_item['qty'] + 1 > stock:
+                    messagebox.showwarning("تنبيه", "الكمية المطلوبة تتجاوز المخزون المتاح!")
                     return
-                cart_item["qty"] += 1
-                cart_item["total"] = cart_item["qty"] * price
-                self.update_cart_tree()
+                cart_item['qty'] += 1
+                self.update_cart_display()
                 return
 
-        self.cart.append({"barcode": barcode, "name": name, "price": price, "qty": 1, "total": price})
-        self.update_cart_tree()
+        self.cart.append({
+            'id': prod_id, 
+            'part_name': part_name,
+            'car_models': car_models,
+            'name': display_name, 
+            'prix': prix_vente, 
+            'prix_achat': pa, 
+            'qty': 1
+        })
+        self.update_cart_display()
 
-    def update_cart_tree(self):
-        for r in self.cart_tree.get_children():
-            self.cart_tree.delete(r)
+    def remove_from_cart(self):
+        selected = self.cart_tree.selection()
+        if not selected:
+            messagebox.showwarning("تنبيه", "يرجى تحديد عنصر من سلة المشتريات لإزالته!")
+            return
         
-        total_sum = 0
+        index = self.cart_tree.index(selected[0])
+        del self.cart[index]
+        self.update_cart_display()
+
+    def update_cart_display(self):
+        for item in self.cart_tree.get_children():
+            self.cart_tree.delete(item)
+            
+        total = 0
         for item in self.cart:
-            self.cart_tree.insert("", "end", values=(item["name"], item["qty"], item["price"], item["total"]))
-            total_sum += item["total"]
-        
-        self.lbl_cart_total.configure(text=f"المجموع: {total_sum:.2f} DZD")
+            subtotal = item['prix'] * item['qty']
+            total += subtotal
+            self.cart_tree.insert("", "end", values=(item['name'], item['qty'], f"{subtotal:.2f}"))
+            
+        self.lbl_total.configure(text=f"الإجمالي: {total:.2f} DZD")
 
-    def checkout(self):
+    def generate_receipt(self, sale_id, date_str, total_amount):
+        cfg = self.get_settings()
+        filename = f"فاتورة_{sale_id}.txt"
+        
+        receipt_content = f"""
+========================================
+             {cfg['store_name']}
+        العنوان: {cfg['address']}
+        الهاتف: {cfg['phone']}
+         فاتورة بيع رقم: #{sale_id}
+========================================
+التاريخ: {date_str}
+----------------------------------------
+المنتج / الموديلات           الكمية   السعر
+----------------------------------------
+"""
+        for item in self.cart:
+            receipt_content += f"{item['name'][:22]:<22}  x{item['qty']:<3}  {item['prix'] * item['qty']:.2f} DZD\n"
+
+        receipt_content += f"""----------------------------------------
+الإجمالي: {total_amount:.2f} DZD
+طريقة الدفع: نقداً
+========================================
+       {cfg['footer_text']}
+========================================
+"""
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(receipt_content)
+
+        try:
+            os.startfile(filename)
+        except Exception as e:
+            messagebox.showerror("خطأ", f"تعذر فتح ملف الفاتورة للطباعة: {e}")
+
+    def process_payment(self):
         if not self.cart:
             messagebox.showwarning("تنبيه", "السلة فارغة!")
             return
 
-        total_sales = sum(i["total"] for i in self.cart)
-        total_profit = 0
+        total_vente = sum(item['prix'] * item['qty'] for item in self.cart)
+        total_achat = sum(item['prix_achat'] * item['qty'] for item in self.cart)
+        profit = total_vente - total_achat
+        date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        self.cursor.execute("INSERT INTO sales (date_vente, total_vente, total_profit, methode_paiement) VALUES (?, ?, ?, ?)",
+                            (date_now, total_vente, profit, "نقداً"))
+        sale_id = self.cursor.lastrowid
 
         for item in self.cart:
-            self.cursor.execute("SELECT prix_achat, stock FROM products WHERE barcode=?", (item["barcode"],))
-            res = self.cursor.fetchone()
-            if res:
-                p_achat, stock = res[0], res[1]
-                total_profit += (item["price"] - p_achat) * item["qty"]
-                new_stock = stock - item["qty"]
-                self.cursor.execute("UPDATE products SET stock=? WHERE barcode=?", (new_stock, item["barcode"]))
+            item_total_vente = item['prix'] * item['qty']
+            item_total_profit = (item['prix'] - item['prix_achat']) * item['qty']
+            
+            # تسجيل كل قطعة مباعة بالتفصيل
+            self.cursor.execute("""
+                INSERT INTO sale_items 
+                (sale_id, product_id, part_name, car_models, qty, prix_vente, prix_achat, total_item_vente, total_item_profit, date_vente)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (sale_id, item['id'], item['part_name'], item['car_models'], item['qty'], 
+                  item['prix'], item['prix_achat'], item_total_vente, item_total_profit, date_now))
 
-        date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.cursor.execute("INSERT INTO sales (date_vente, total_vente, total_profit, methode_paiement) VALUES (?, ?, ?, ?)",
-                            (date_str, total_sales, total_profit, "نقداً"))
+            # تحديث المخزون
+            self.cursor.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item['qty'], item['id']))
+
         self.conn.commit()
+        self.generate_receipt(sale_id, date_now, total_vente)
 
-        messagebox.showinfo("نجاح", "تمت عملية البيع وتسجيل الفاتورة بنجاح!")
-        self.cart = []
-        self.update_cart_tree()
+        messagebox.showinfo("نجاح العملية", f"تم التسجيل بنجاح وإنشاء الفاتورة!\nالربح المحقق: {profit:.2f} DZD")
+        self.cart.clear()
+        self.update_cart_display()
         self.load_pos_products()
 
-    # --- 3. قسم المنتجات والمخزون ---
+    # --- 2. قسم إدارة المخزون ---
     def show_products_tab(self):
-        self.update_sidebar_buttons(self.btn_products)
         self.clear_container()
 
-        frame = ctk.CTkFrame(self.main_container, fg_color="#ffffff", corner_radius=10)
+        top_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        top_frame.pack(fill="x", padx=15, pady=10)
+
+        bottom_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        bottom_frame.pack(fill="both", expand=True, padx=15, pady=10)
+
+        ctk.CTkLabel(top_frame, text="📦 إضافة / تحديث قطعة غيار متوافقة مع عدة سيارات", font=("Arial", 16, "bold"), text_color="#cdd6f4").grid(row=0, column=0, columnspan=4, pady=10)
+
+        ctk.CTkLabel(top_frame, text="اسم القطعة:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+        ent_part = ctk.CTkEntry(top_frame, width=220, placeholder_text="Démarreur / Alternateur")
+        ent_part.grid(row=1, column=1, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="السيارات المتوافقة:").grid(row=1, column=2, padx=10, pady=5, sticky="e")
+        ent_cars = ctk.CTkEntry(top_frame, width=220, placeholder_text="Golf 7, Leon 3, Audi A3")
+        ent_cars.grid(row=1, column=3, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="المحركات المتوافقة:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
+        ent_engines = ctk.CTkEntry(top_frame, width=220, placeholder_text="2.0 TDI, 1.6 TDI, 1.4 TSI")
+        ent_engines.grid(row=2, column=1, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="السنوات:").grid(row=2, column=2, padx=10, pady=5, sticky="e")
+        ent_years = ctk.CTkEntry(top_frame, width=220, placeholder_text="2012-2020 أو 2013, 2015")
+        ent_years.grid(row=2, column=3, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="الباركود:").grid(row=3, column=0, padx=10, pady=5, sticky="e")
+        ent_bc = ctk.CTkEntry(top_frame, width=220)
+        ent_bc.grid(row=3, column=1, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="الكمية المضافة:").grid(row=3, column=2, padx=10, pady=5, sticky="e")
+        ent_stock = ctk.CTkEntry(top_frame, width=220)
+        ent_stock.grid(row=3, column=3, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="سعر الشراء:").grid(row=4, column=0, padx=10, pady=5, sticky="e")
+        ent_pa = ctk.CTkEntry(top_frame, width=220)
+        ent_pa.grid(row=4, column=1, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="سعر البيع:").grid(row=4, column=2, padx=10, pady=5, sticky="e")
+        ent_pv = ctk.CTkEntry(top_frame, width=220)
+        ent_pv.grid(row=4, column=3, padx=10, pady=5)
+
+        def save_or_update_product():
+            try:
+                bc = ent_bc.get().strip()
+                part = ent_part.get().strip()
+                cars = ent_cars.get().strip()
+                engines = ent_engines.get().strip()
+                years = ent_years.get().strip()
+                pa = float(ent_pa.get())
+                pv = float(ent_pv.get())
+                add_qty = int(ent_stock.get())
+
+                self.cursor.execute("""
+                    SELECT id, stock FROM products 
+                    WHERE (barcode != '' AND barcode = ?) OR (part_name = ? AND car_models = ?)
+                """, (bc, part, cars))
+                existing = self.cursor.fetchone()
+
+                if existing:
+                    prod_id, current_stock = existing
+                    new_stock = current_stock + add_qty
+                    self.cursor.execute("""
+                        UPDATE products 
+                        SET stock = ?, prix_achat = ?, prix_vente = ?, engine_types = ?, years = ?
+                        WHERE id = ?
+                    """, (new_stock, pa, pv, engines, years, prod_id))
+                    messagebox.showinfo("تحديث", f"تمت زيادة مخزون القطعة بنجاح!\nالكمية الجديدة: {new_stock}")
+                else:
+                    self.cursor.execute("""
+                        INSERT INTO products (barcode, part_name, car_models, engine_types, years, prix_achat, prix_vente, stock) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (bc, part, cars, engines, years, pa, pv, add_qty))
+                    messagebox.showinfo("نجاح", "تم حفظ القطعة الجديدة بالمخزون!")
+
+                self.conn.commit()
+                load_manage_products()
+            except Exception as e:
+                messagebox.showerror("خطأ", f"تعذر الحفظ: {e}")
+
+        btn_save = ctk.CTkButton(top_frame, text="حفظ / زيادة المخزون", fg_color="#a6e3a1", text_color="#11111b", 
+                                font=("Arial", 14, "bold"), hover_color="#94e2d5", command=save_or_update_product)
+        btn_save.grid(row=5, column=0, columnspan=4, pady=15)
+
+        ctk.CTkLabel(bottom_frame, text="قائمة المخزون الحالية - تعديل أو حذف القطع", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=5)
+
+        columns = ("id", "part_name", "car_models", "engine_types", "years", "prix_vente", "stock")
+        manage_tree = ttk.Treeview(bottom_frame, columns=columns, show="headings", height=8)
+        
+        manage_tree.heading("id", text="ID")
+        manage_tree.heading("part_name", text="القطعة")
+        manage_tree.heading("car_models", text="السيارات المتوافقة")
+        manage_tree.heading("engine_types", text="المحركات")
+        manage_tree.heading("years", text="السنوات")
+        manage_tree.heading("prix_vente", text="سعر البيع")
+        manage_tree.heading("stock", text="المخزون")
+
+        manage_tree.pack(fill="both", expand=True, padx=10, pady=5)
+
+        def load_manage_products():
+            for item in manage_tree.get_children():
+                manage_tree.delete(item)
+            self.cursor.execute("SELECT id, part_name, car_models, engine_types, years, prix_vente, stock FROM products")
+            for row in self.cursor.fetchall():
+                manage_tree.insert("", "end", values=row)
+
+        quick_edit_frame = ctk.CTkFrame(bottom_frame, fg_color="transparent")
+        quick_edit_frame.pack(fill="x", pady=5)
+
+        def delete_selected_product():
+            selected = manage_tree.selection()
+            if not selected:
+                messagebox.showwarning("تنبيه", "يرجى تحديد قطعة من الجدول لحذفها!")
+                return
+            
+            item = manage_tree.item(selected[0])['values']
+            prod_id = item[0]
+            part_name = item[1]
+            
+            confirm = messagebox.askyesno("تأكيد الحذف", f"هل أنت تأكد من رغبتك في حذف القطعة '{part_name}' نهائياً من المخزون؟")
+            if confirm:
+                self.cursor.execute("DELETE FROM products WHERE id = ?", (prod_id,))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم حذف القطعة من المخزون بنجاح!")
+                load_manage_products()
+
+        btn_delete = ctk.CTkButton(quick_edit_frame, text="🗑️ حذف القطعة المحددة", fg_color="#f38ba8", hover_color="#e35b78", text_color="#11111b", font=("Arial", 12, "bold"), command=delete_selected_product)
+        btn_delete.pack(side="left", padx=10)
+
+        ctk.CTkLabel(quick_edit_frame, text="إعادة شحن سريعة:").pack(side="right", padx=10)
+        ent_quick_qty = ctk.CTkEntry(quick_edit_frame, width=100, placeholder_text="+الكمية")
+        ent_quick_qty.pack(side="right", padx=5)
+
+        def quick_add_stock():
+            selected = manage_tree.selection()
+            if not selected:
+                messagebox.showwarning("تنبيه", "يرجى تحديد قطعة من الجدول أولاً!")
+                return
+            try:
+                qty_to_add = int(ent_quick_qty.get().strip())
+                item = manage_tree.item(selected[0])['values']
+                prod_id = item[0]
+
+                self.cursor.execute("UPDATE products SET stock = stock + ? WHERE id = ?", (qty_to_add, prod_id))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم تحديث كمية المخزون بنجاح!")
+                load_manage_products()
+            except Exception as e:
+                messagebox.showerror("خطأ", f"ادخل كمية صحيحة: {e}")
+
+        btn_quick_add = ctk.CTkButton(quick_edit_frame, text="تحديث الكمية", fg_color="#89b4fa", text_color="#11111b", font=("Arial", 12, "bold"), command=quick_add_stock)
+        btn_quick_add.pack(side="right", padx=10)
+
+        load_manage_products()
+
+    # --- 3. قسم التقارير والأرباح (المُعدّل) ---
+    def show_reports_tab(self):
+        self.clear_container()
+
+        frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # النموذج (يمين)
-        form_frame = ctk.CTkFrame(frame, fg_color="#f8f9fa", width=350)
-        form_frame.pack(side="right", fill="y", padx=10, pady=10)
+        # شريط اختيار الفترة الزمنية
+        top_bar = ctk.CTkFrame(frame, fg_color="transparent")
+        top_bar.pack(fill="x", pady=10)
 
-        ctk.CTkLabel(form_frame, text="إضافة / تعديل قطعة", font=("Arial", 16, "bold"), text_color="#333").pack(pady=10)
+        ctk.CTkLabel(top_bar, text="📊 لوحة الإحصائيات والأرباح التفصيلية", font=("Arial", 18, "bold"), text_color="#cdd6f4").pack(side="right", padx=10)
 
-        self.ent_p_barcode = ctk.CTkEntry(form_frame, placeholder_text="الباركود", fg_color="#fff", text_color="#000")
-        self.ent_p_barcode.pack(fill="x", padx=10, pady=5)
+        self.period_selector = ctk.CTkSegmentedButton(
+            top_bar, 
+            values=["اليوم", "الأسبوع", "الشهر", "السنة", "الكل"],
+            font=("Arial", 12, "bold"),
+            selected_color="#89b4fa",
+            selected_hover_color="#b4befe",
+            command=lambda v: self.load_report_data(v)
+        )
+        self.period_selector.pack(side="left", padx=10)
+        self.period_selector.set("اليوم")
 
-        self.ent_p_name = ctk.CTkEntry(form_frame, placeholder_text="اسم قطعة الغيار", fg_color="#fff", text_color="#000")
-        self.ent_p_name.pack(fill="x", padx=10, pady=5)
+        # بطاقات ملخص رقم الأعمال والأرباح والفواتير
+        cards_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        cards_frame.pack(fill="x", pady=10)
 
-        self.ent_p_models = ctk.CTkEntry(form_frame, placeholder_text="موديلات السيارات (مثال: Golf 7)", fg_color="#fff", text_color="#000")
-        self.ent_p_models.pack(fill="x", padx=10, pady=5)
+        card1 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        card1.pack(side="left", expand=True, fill="both", padx=10, pady=5)
+        ctk.CTkLabel(card1, text="إجمالي رقم الأعمال", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        self.lbl_report_sales = ctk.CTkLabel(card1, text="0.00 DZD", font=("Arial", 18, "bold"), text_color="#89b4fa")
+        self.lbl_report_sales.pack(pady=10)
 
-        self.ent_p_engines = ctk.CTkEntry(form_frame, placeholder_text="المحرك (مثال: 2.0 TDI)", fg_color="#fff", text_color="#000")
-        self.ent_p_engines.pack(fill="x", padx=10, pady=5)
+        card2 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        card2.pack(side="left", expand=True, fill="both", padx=10, pady=5)
+        ctk.CTkLabel(card2, text="صافي الأرباح", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        self.lbl_report_profit = ctk.CTkLabel(card2, text="0.00 DZD", font=("Arial", 18, "bold"), text_color="#a6e3a1")
+        self.lbl_report_profit.pack(pady=10)
 
-        self.ent_p_years = ctk.CTkEntry(form_frame, placeholder_text="السنوات (2013-2019)", fg_color="#fff", text_color="#000")
-        self.ent_p_years.pack(fill="x", padx=10, pady=5)
+        card3 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        card3.pack(side="left", expand=True, fill="both", padx=10, pady=5)
+        ctk.CTkLabel(card3, text="عدد الفواتير المكتملة", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        self.lbl_report_invoices = ctk.CTkLabel(card3, text="0", font=("Arial", 18, "bold"), text_color="#f38ba8")
+        self.lbl_report_invoices.pack(pady=10)
 
-        self.ent_p_buy = ctk.CTkEntry(form_frame, placeholder_text="سعر الشراء (DZD)", fg_color="#fff", text_color="#000")
-        self.ent_p_buy.pack(fill="x", padx=10, pady=5)
+        # جدول أداء كل قطعة مباعة
+        ctk.CTkLabel(frame, text="📦 تفاصيل أرباح ورقم أعمال كل قطعة مباعة:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", padx=10, pady=(15, 5))
 
-        self.ent_p_sell = ctk.CTkEntry(form_frame, placeholder_text="سعر البيع (DZD)", fg_color="#fff", text_color="#000")
-        self.ent_p_sell.pack(fill="x", padx=10, pady=5)
+        columns = ("part_name", "car_models", "total_qty", "total_revenue", "total_profit")
+        self.items_report_tree = ttk.Treeview(frame, columns=columns, show="headings", height=10)
 
-        self.ent_p_stock = ctk.CTkEntry(form_frame, placeholder_text="الكمية بالمخزون", fg_color="#fff", text_color="#000")
-        self.ent_p_stock.pack(fill="x", padx=10, pady=5)
+        self.items_report_tree.heading("part_name", text="اسم القطعة")
+        self.items_report_tree.heading("car_models", text="السيارات المتوافقة")
+        self.items_report_tree.heading("total_qty", text="الكمية المباعة")
+        self.items_report_tree.heading("total_revenue", text="رقم الأعمال المحقق")
+        self.items_report_tree.heading("total_profit", text="صافي الربح")
 
-        btn_add = ctk.CTkButton(form_frame, text="حفظ القطعة", fg_color="#27ae60", hover_color="#219150", font=("Arial", 13, "bold"), command=self.save_product)
-        btn_add.pack(fill="x", padx=10, pady=15)
+        self.items_report_tree.column("part_name", width=180)
+        self.items_report_tree.column("car_models", width=220)
+        self.items_report_tree.column("total_qty", width=100, anchor="center")
+        self.items_report_tree.column("total_revenue", width=140, anchor="center")
+        self.items_report_tree.column("total_profit", width=140, anchor="center")
 
-        # جدول المنتجات (يسار)
-        list_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        list_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        self.items_report_tree.pack(fill="both", expand=True, padx=10, pady=5)
 
-        cols = ("id", "barcode", "name", "models", "buy", "sell", "stock")
-        self.prod_tree = ttk.Treeview(list_frame, columns=cols, show="headings")
-        self.prod_tree.heading("id", text="ID")
-        self.prod_tree.heading("barcode", text="الباركود")
-        self.prod_tree.heading("name", text="القطعة")
-        self.prod_tree.heading("models", text="السيارات")
-        self.prod_tree.heading("buy", text="الشراء")
-        self.prod_tree.heading("sell", text="البيع")
-        self.prod_tree.heading("stock", text="المخزون")
-        
-        self.prod_tree.column("id", width=40)
-        self.prod_tree.column("barcode", width=100)
-        self.prod_tree.column("name", width=150)
-        self.prod_tree.column("models", width=120)
-        self.prod_tree.column("buy", width=80)
-        self.prod_tree.column("sell", width=80)
-        self.prod_tree.column("stock", width=60)
-        
-        self.prod_tree.pack(fill="both", expand=True)
+        self.load_report_data("اليوم")
 
-        self.load_all_products()
+    def load_report_data(self, period):
+        now = datetime.now()
+        where_clause_sales = ""
+        where_clause_items = ""
+        params = []
 
-    def save_product(self):
-        barcode = self.ent_p_barcode.get().strip()
-        name = self.ent_p_name.get().strip()
-        models = self.ent_p_models.get().strip()
-        engines = self.ent_p_engines.get().strip()
-        years = self.ent_p_years.get().strip()
-        buy = self.ent_p_buy.get().strip()
-        sell = self.ent_p_sell.get().strip()
-        stock = self.ent_p_stock.get().strip()
+        if period == "اليوم":
+            date_str = now.strftime("%Y-%m-%d") + "%"
+            where_clause_sales = " WHERE date_vente LIKE ?"
+            where_clause_items = " WHERE date_vente LIKE ?"
+            params = [date_str]
+        elif period == "الأسبوع":
+            start_week = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d 00:00:00")
+            where_clause_sales = " WHERE date_vente >= ?"
+            where_clause_items = " WHERE date_vente >= ?"
+            params = [start_week]
+        elif period == "الشهر":
+            month_str = now.strftime("%Y-%m") + "%"
+            where_clause_sales = " WHERE date_vente LIKE ?"
+            where_clause_items = " WHERE date_vente LIKE ?"
+            params = [month_str]
+        elif period == "السنة":
+            year_str = now.strftime("%Y") + "%"
+            where_clause_sales = " WHERE date_vente LIKE ?"
+            where_clause_items = " WHERE date_vente LIKE ?"
+            params = [year_str]
 
-        if not barcode or not name or not sell or not stock:
-            messagebox.showwarning("خطأ", "يرجى ملء كافة الحقول الأساسية!")
-            return
+        # 1. تحديث ملخص المبيعات الكلي للفترة
+        self.cursor.execute(f"SELECT SUM(total_vente), SUM(total_profit), COUNT(id) FROM sales{where_clause_sales}", params)
+        res = self.cursor.fetchone()
 
-        try:
-            self.cursor.execute('''
-                INSERT INTO products (barcode, part_name, car_models, engine_types, years, prix_achat, prix_vente, stock)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (barcode, name, models, engines, years, float(buy), float(sell), int(stock)))
-            self.conn.commit()
-            messagebox.showinfo("نجاح", "تمت إضافة القطعة بنجاح")
-            self.load_all_products()
-        except Exception as e:
-            messagebox.showerror("خطأ", f"تعذر الإضافة (قد يكون الباركود مكرراً): {e}")
+        total_sales = res[0] if res and res[0] else 0.0
+        total_profit = res[1] if res and res[1] else 0.0
+        total_invoices = res[2] if res and res[2] else 0
 
-    def load_all_products(self):
-        for r in self.prod_tree.get_children():
-            self.prod_tree.delete(r)
-        self.cursor.execute("SELECT id, barcode, part_name, car_models, prix_achat, prix_vente, stock FROM products")
+        self.lbl_report_sales.configure(text=f"{total_sales:.2f} DZD")
+        self.lbl_report_profit.configure(text=f"{total_profit:.2f} DZD")
+        self.lbl_report_invoices.configure(text=str(total_invoices))
+
+        # 2. تحديث جدول القطع المباعة للفترة المختارة
+        for item in self.items_report_tree.get_children():
+            self.items_report_tree.delete(item)
+
+        query_items = f"""
+            SELECT 
+                part_name, 
+                car_models, 
+                SUM(qty) as total_qty, 
+                SUM(total_item_vente) as total_revenue, 
+                SUM(total_item_profit) as total_profit
+            FROM sale_items
+            {where_clause_items}
+            GROUP BY part_name, car_models
+            ORDER BY total_profit DESC
+        """
+        self.cursor.execute(query_items, params)
         for row in self.cursor.fetchall():
-            self.prod_tree.insert("", "end", values=row)
+            part_name, car_models, total_qty, total_revenue, total_profit_item = row
+            self.items_report_tree.insert("", "end", values=(
+                part_name, 
+                car_models, 
+                total_qty, 
+                f"{total_revenue:.2f} DZD", 
+                f"{total_profit_item:.2f} DZD"
+            ))
 
-    # --- 4. قسم الإعدادات ---
+    # --- 4. قسم الإعدادات (إعدادات المتجر والفاتورة) ---
     def show_settings_tab(self):
-        self.update_sidebar_buttons(self.btn_settings)
         self.clear_container()
 
-        frame = ctk.CTkFrame(self.main_container, fg_color="#ffffff", corner_radius=10)
-        frame.pack(fill="both", expand=True, padx=40, pady=40)
+        frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        frame.pack(fill="both", expand=True, padx=30, pady=20)
 
-        ctk.CTkLabel(frame, text="⚙️ إعدادات المتجر والفواتير", font=("Arial", 18, "bold"), text_color="#333").pack(pady=20)
+        ctk.CTkLabel(frame, text="⚙️ إعدادات المتجر والفاتورة", font=("Arial", 20, "bold"), text_color="#cdd6f4").pack(pady=15)
 
-        settings = self.get_settings()
+        cfg = self.get_settings()
 
-        self.ent_st_name = ctk.CTkEntry(frame, width=400, fg_color="#f8f9fa", text_color="#000")
-        self.ent_st_name.insert(0, settings["store_name"])
-        self.ent_st_name.pack(pady=10)
+        form_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        form_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
-        self.ent_st_phone = ctk.CTkEntry(frame, width=400, fg_color="#f8f9fa", text_color="#000")
-        self.ent_st_phone.insert(0, settings["phone"])
-        self.ent_st_phone.pack(pady=10)
+        # اسم المتجر
+        ctk.CTkLabel(form_frame, text="اسم المتجر:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_store_name = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_store_name.pack(anchor="e", pady=5)
+        ent_store_name.insert(0, cfg["store_name"])
 
-        self.ent_st_addr = ctk.CTkEntry(frame, width=400, fg_color="#f8f9fa", text_color="#000")
-        self.ent_st_addr.insert(0, settings["address"])
-        self.ent_st_addr.pack(pady=10)
+        # رقم الهاتف
+        ctk.CTkLabel(form_frame, text="رقم الهاتف:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_phone = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_phone.pack(anchor="e", pady=5)
+        ent_phone.insert(0, cfg["phone"])
 
-        self.ent_st_foot = ctk.CTkEntry(frame, width=400, fg_color="#f8f9fa", text_color="#000")
-        self.ent_st_foot.insert(0, settings["footer_text"])
-        self.ent_st_foot.pack(pady=10)
+        # العنوان
+        ctk.CTkLabel(form_frame, text="العنوان:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_address = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_address.pack(anchor="e", pady=5)
+        ent_address.insert(0, cfg["address"])
 
-        btn_save = ctk.CTkButton(frame, text="حفظ التغييرات", font=("Arial", 14, "bold"), fg_color="#1e66f5", width=200, command=self.save_settings)
-        btn_save.pack(pady=20)
+        # تذيل الفاتورة
+        ctk.CTkLabel(form_frame, text="تذيل الفاتورة (الرسالة أسفل الفاتورة):", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="e", pady=5)
+        ent_footer = ctk.CTkEntry(form_frame, width=450, font=("Arial", 13))
+        ent_footer.pack(anchor="e", pady=5)
+        ent_footer.insert(0, cfg["footer_text"])
 
-    def save_settings(self):
-        name = self.ent_st_name.get()
-        phone = self.ent_st_phone.get()
-        addr = self.ent_st_addr.get()
-        foot = self.ent_st_foot.get()
+        def save_settings():
+            try:
+                s_name = ent_store_name.get().strip()
+                s_phone = ent_phone.get().strip()
+                s_addr = ent_address.get().strip()
+                s_footer = ent_footer.get().strip()
 
-        self.cursor.execute("UPDATE settings SET store_name=?, phone=?, address=?, footer_text=? WHERE id=1", (name, phone, addr, foot))
-        self.conn.commit()
-        messagebox.showinfo("نجاح", "تم حفظ الإعدادات بنجاح!")
+                self.cursor.execute("UPDATE settings SET store_name = ?, phone = ?, address = ?, footer_text = ? WHERE id = 1",
+                                    (s_name, s_phone, s_addr, s_footer))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم حفظ إعدادات الفاتورة والمتجر بنجاح!")
+            except Exception as e:
+                messagebox.showerror("خطأ", f"تعذر الحفظ: {e}")
+
+        btn_save_settings = ctk.CTkButton(form_frame, text="💾 حفظ الإعدادات", font=("Arial", 15, "bold"), 
+                                          fg_color="#a6e3a1", text_color="#11111b", hover_color="#94e2d5", command=save_settings)
+        btn_save_settings.pack(anchor="e", pady=25)
 
 if __name__ == "__main__":
     app = SuperPOSApp()
