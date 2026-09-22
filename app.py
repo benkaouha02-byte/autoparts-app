@@ -11,7 +11,7 @@ class SuperPOSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("SUPER_POS - CarOps Auto")
-        self.geometry("1200x750")
+        self.geometry("1250x780")
         
         self.init_db()
         self.cart = []
@@ -21,15 +21,15 @@ class SuperPOSApp(ctk.CTk):
         self.conn = sqlite3.connect("super_pos.db")
         self.cursor = self.conn.cursor()
         
-        # جدول قطع الغيار
+        # جدول قطع الغيار المتوافق مع عدة سيارات ومحركات وسنوات
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 barcode TEXT UNIQUE,
                 part_name TEXT,
-                car_model TEXT,
-                engine_type TEXT,
-                year INTEGER,
+                car_models TEXT,   -- السيارات المتوافقة (مفصولة بفواصل)
+                engine_types TEXT, -- المحركات المتوافقة (مفصولة بفواصل)
+                years TEXT,        -- السنوات (مجال أو سنوات مفصولة بفواصل)
                 prix_achat REAL,
                 prix_vente REAL,
                 stock INTEGER
@@ -86,7 +86,7 @@ class SuperPOSApp(ctk.CTk):
     def show_pos_tab(self):
         self.clear_container()
 
-        left_frame = ctk.CTkFrame(self.main_container, width=380, fg_color="#1e1e2e")
+        left_frame = ctk.CTkFrame(self.main_container, width=400, fg_color="#1e1e2e")
         left_frame.pack(side="left", fill="both", padx=10, pady=10)
 
         right_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
@@ -94,28 +94,28 @@ class SuperPOSApp(ctk.CTk):
 
         ctk.CTkLabel(right_frame, text="البحث عن قطعة غيار:", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(anchor="ne", padx=10, pady=5)
 
-        self.search_entry = ctk.CTkEntry(right_frame, placeholder_text="ابحث بالاسم، موديل السيارة، المحرك، أو الباركود...", font=("Arial", 13))
+        self.search_entry = ctk.CTkEntry(right_frame, placeholder_text="ابحث بالاسم، السيارات، المحركات، السنوات، أو الباركود...", font=("Arial", 13))
         self.search_entry.pack(fill="x", padx=10, pady=5)
         self.search_entry.bind("<KeyRelease>", self.filter_products)
 
-        columns = ("id", "barcode", "part_name", "car_model", "engine", "year", "prix", "stock")
+        columns = ("id", "barcode", "part_name", "car_models", "engine_types", "years", "prix", "stock")
         self.pos_tree = ttk.Treeview(right_frame, columns=columns, show="headings", height=15)
         
         self.pos_tree.heading("id", text="ID")
         self.pos_tree.heading("barcode", text="الباركود")
         self.pos_tree.heading("part_name", text="القطعة")
-        self.pos_tree.heading("car_model", text="السيارة")
-        self.pos_tree.heading("engine", text="المحرك")
-        self.pos_tree.heading("year", text="العام")
+        self.pos_tree.heading("car_models", text="السيارات المتوافقة")
+        self.pos_tree.heading("engine_types", text="المحركات")
+        self.pos_tree.heading("years", text="السنوات")
         self.pos_tree.heading("prix", text="السعر")
         self.pos_tree.heading("stock", text="المخزون")
 
         self.pos_tree.column("id", width=30)
         self.pos_tree.column("barcode", width=80)
         self.pos_tree.column("part_name", width=110)
-        self.pos_tree.column("car_model", width=90)
-        self.pos_tree.column("engine", width=80)
-        self.pos_tree.column("year", width=50)
+        self.pos_tree.column("car_models", width=140)
+        self.pos_tree.column("engine_types", width=110)
+        self.pos_tree.column("years", width=80)
         self.pos_tree.column("prix", width=70)
         self.pos_tree.column("stock", width=60)
 
@@ -129,15 +129,14 @@ class SuperPOSApp(ctk.CTk):
         ctk.CTkLabel(left_frame, text="🛒 سلة المشتريات", font=("Arial", 16, "bold"), text_color="#cdd6f4").pack(pady=10)
 
         self.cart_tree = ttk.Treeview(left_frame, columns=("name", "qty", "total"), show="headings", height=12)
-        self.cart_tree.heading("name", text="القطعة / السيارة")
+        self.cart_tree.heading("name", text="القطعة / الموديلات")
         self.cart_tree.heading("qty", text="الكمية")
         self.cart_tree.heading("total", text="المجموع")
-        self.cart_tree.column("name", width=170)
+        self.cart_tree.column("name", width=190)
         self.cart_tree.column("qty", width=50)
         self.cart_tree.column("total", width=80)
         self.cart_tree.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # زر إزالة عنصر من السلة
         btn_remove_cart = ctk.CTkButton(left_frame, text="🗑️ إزالة القطعة المحددة من السلة", fg_color="#f38ba8", 
                                          hover_color="#e35b78", text_color="#11111b", font=("Arial", 12, "bold"), command=self.remove_from_cart)
         btn_remove_cart.pack(fill="x", padx=15, pady=5)
@@ -158,12 +157,12 @@ class SuperPOSApp(ctk.CTk):
         if query:
             q = f"%{query}%"
             self.cursor.execute("""
-                SELECT id, barcode, part_name, car_model, engine_type, year, prix_vente, stock 
+                SELECT id, barcode, part_name, car_models, engine_types, years, prix_vente, stock 
                 FROM products 
-                WHERE barcode LIKE ? OR part_name LIKE ? OR car_model LIKE ? OR engine_type LIKE ? OR year LIKE ?
+                WHERE barcode LIKE ? OR part_name LIKE ? OR car_models LIKE ? OR engine_types LIKE ? OR years LIKE ?
             """, (q, q, q, q, q))
         else:
-            self.cursor.execute("SELECT id, barcode, part_name, car_model, engine_type, year, prix_vente, stock FROM products")
+            self.cursor.execute("SELECT id, barcode, part_name, car_models, engine_types, years, prix_vente, stock FROM products")
             
         for row in self.cursor.fetchall():
             self.pos_tree.insert("", "end", values=row)
@@ -181,20 +180,19 @@ class SuperPOSApp(ctk.CTk):
         
         prod_id = int(item[0])
         part_name = str(item[2])
-        car_model = str(item[3])
-        engine = str(item[4])
+        car_models = str(item[3])
         prix_vente = float(item[6])
         stock = int(item[7])
         
         if stock <= 0:
-            messagebox.showerror("خطأ", "القطعة غير متوفرة في المخزون! يرجى إعادة شحن المخزون أولاً.")
+            messagebox.showerror("خطأ", "القطعة غير متوفرة في المخزون!")
             return
 
         self.cursor.execute("SELECT prix_achat FROM products WHERE id = ?", (prod_id,))
         res = self.cursor.fetchone()
         pa = res[0] if res else 0.0
         
-        display_name = f"{part_name} ({car_model} {engine})"
+        display_name = f"{part_name} ({car_models})"
         
         for cart_item in self.cart:
             if cart_item['id'] == prod_id:
@@ -252,7 +250,7 @@ class SuperPOSApp(ctk.CTk):
         self.update_cart_display()
         self.load_pos_products()
 
-    # --- 2. قسم إدارة المخزون ---
+    # --- 2. قسم إدارة المخزون (تعدد السيارات/المحركات/السنوات) ---
     def show_products_tab(self):
         self.clear_container()
 
@@ -262,55 +260,55 @@ class SuperPOSApp(ctk.CTk):
         bottom_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
         bottom_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
-        ctk.CTkLabel(top_frame, text="📦 إضافة / تحديث قطعة غيار بالمخزون", font=("Arial", 16, "bold"), text_color="#cdd6f4").grid(row=0, column=0, columnspan=4, pady=10)
+        ctk.CTkLabel(top_frame, text="📦 إضافة / تحديث قطعة غيار متوافقة مع عدة سيارات", font=("Arial", 16, "bold"), text_color="#cdd6f4").grid(row=0, column=0, columnspan=4, pady=10)
 
         ctk.CTkLabel(top_frame, text="اسم القطعة:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
-        ent_part = ctk.CTkEntry(top_frame, width=180, placeholder_text="Démarreur")
+        ent_part = ctk.CTkEntry(top_frame, width=220, placeholder_text="Démarreur / Alternateur")
         ent_part.grid(row=1, column=1, padx=10, pady=5)
 
-        ctk.CTkLabel(top_frame, text="السيارة:").grid(row=1, column=2, padx=10, pady=5, sticky="e")
-        ent_car = ctk.CTkEntry(top_frame, width=180, placeholder_text="Golf 7")
-        ent_car.grid(row=1, column=3, padx=10, pady=5)
+        ctk.CTkLabel(top_frame, text="السيارات المتوافقة:").grid(row=1, column=2, padx=10, pady=5, sticky="e")
+        ent_cars = ctk.CTkEntry(top_frame, width=220, placeholder_text="Golf 7, Leon 3, Audi A3")
+        ent_cars.grid(row=1, column=3, padx=10, pady=5)
 
-        ctk.CTkLabel(top_frame, text="المحرك:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
-        ent_engine = ctk.CTkEntry(top_frame, width=180, placeholder_text="2.0 TDI")
-        ent_engine.grid(row=2, column=1, padx=10, pady=5)
+        ctk.CTkLabel(top_frame, text="المحركات المتوافقة:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
+        ent_engines = ctk.CTkEntry(top_frame, width=220, placeholder_text="2.0 TDI, 1.6 TDI, 1.4 TSI")
+        ent_engines.grid(row=2, column=1, padx=10, pady=5)
 
-        ctk.CTkLabel(top_frame, text="العام:").grid(row=2, column=2, padx=10, pady=5, sticky="e")
-        ent_year = ctk.CTkEntry(top_frame, width=180, placeholder_text="2018")
-        ent_year.grid(row=2, column=3, padx=10, pady=5)
+        ctk.CTkLabel(top_frame, text="السنوات:").grid(row=2, column=2, padx=10, pady=5, sticky="e")
+        ent_years = ctk.CTkEntry(top_frame, width=220, placeholder_text="2012-2020 أو 2013, 2015")
+        ent_years.grid(row=2, column=3, padx=10, pady=5)
 
         ctk.CTkLabel(top_frame, text="الباركود:").grid(row=3, column=0, padx=10, pady=5, sticky="e")
-        ent_bc = ctk.CTkEntry(top_frame, width=180)
+        ent_bc = ctk.CTkEntry(top_frame, width=220)
         ent_bc.grid(row=3, column=1, padx=10, pady=5)
 
         ctk.CTkLabel(top_frame, text="الكمية المضافة:").grid(row=3, column=2, padx=10, pady=5, sticky="e")
-        ent_stock = ctk.CTkEntry(top_frame, width=180)
+        ent_stock = ctk.CTkEntry(top_frame, width=220)
         ent_stock.grid(row=3, column=3, padx=10, pady=5)
 
         ctk.CTkLabel(top_frame, text="سعر الشراء:").grid(row=4, column=0, padx=10, pady=5, sticky="e")
-        ent_pa = ctk.CTkEntry(top_frame, width=180)
+        ent_pa = ctk.CTkEntry(top_frame, width=220)
         ent_pa.grid(row=4, column=1, padx=10, pady=5)
 
         ctk.CTkLabel(top_frame, text="سعر البيع:").grid(row=4, column=2, padx=10, pady=5, sticky="e")
-        ent_pv = ctk.CTkEntry(top_frame, width=180)
+        ent_pv = ctk.CTkEntry(top_frame, width=220)
         ent_pv.grid(row=4, column=3, padx=10, pady=5)
 
         def save_or_update_product():
             try:
                 bc = ent_bc.get().strip()
                 part = ent_part.get().strip()
-                car = ent_car.get().strip()
-                engine = ent_engine.get().strip()
-                year = int(ent_year.get().strip()) if ent_year.get().strip() else 0
+                cars = ent_cars.get().strip()
+                engines = ent_engines.get().strip()
+                years = ent_years.get().strip()
                 pa = float(ent_pa.get())
                 pv = float(ent_pv.get())
                 add_qty = int(ent_stock.get())
 
                 self.cursor.execute("""
                     SELECT id, stock FROM products 
-                    WHERE (barcode != '' AND barcode = ?) OR (part_name = ? AND car_model = ? AND engine_type = ?)
-                """, (bc, part, car, engine))
+                    WHERE (barcode != '' AND barcode = ?) OR (part_name = ? AND car_models = ?)
+                """, (bc, part, cars))
                 existing = self.cursor.fetchone()
 
                 if existing:
@@ -318,15 +316,15 @@ class SuperPOSApp(ctk.CTk):
                     new_stock = current_stock + add_qty
                     self.cursor.execute("""
                         UPDATE products 
-                        SET stock = ?, prix_achat = ?, prix_vente = ?
+                        SET stock = ?, prix_achat = ?, prix_vente = ?, engine_types = ?, years = ?
                         WHERE id = ?
-                    """, (new_stock, pa, pv, prod_id))
+                    """, (new_stock, pa, pv, engines, years, prod_id))
                     messagebox.showinfo("تحديث", f"تمت زيادة مخزون القطعة بنجاح!\nالكمية الجديدة: {new_stock}")
                 else:
                     self.cursor.execute("""
-                        INSERT INTO products (barcode, part_name, car_model, engine_type, year, prix_achat, prix_vente, stock) 
+                        INSERT INTO products (barcode, part_name, car_models, engine_types, years, prix_achat, prix_vente, stock) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (bc, part, car, engine, year, pa, pv, add_qty))
+                    """, (bc, part, cars, engines, years, pa, pv, add_qty))
                     messagebox.showinfo("نجاح", "تم حفظ القطعة الجديدة بالمخزون!")
 
                 self.conn.commit()
@@ -340,23 +338,23 @@ class SuperPOSApp(ctk.CTk):
 
         ctk.CTkLabel(bottom_frame, text="قائمة المخزون الحالية - تعديل أو حذف القطع", font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=5)
 
-        columns = ("id", "part_name", "car_model", "engine", "year", "prix_vente", "stock")
+        columns = ("id", "part_name", "car_models", "engine_types", "years", "prix_vente", "stock")
         manage_tree = ttk.Treeview(bottom_frame, columns=columns, show="headings", height=8)
         
         manage_tree.heading("id", text="ID")
         manage_tree.heading("part_name", text="القطعة")
-        manage_tree.heading("car_model", text="السيارة")
-        manage_tree.heading("engine", text="المحرك")
-        manage_tree.heading("year", text="العام")
+        manage_tree.heading("car_models", text="السيارات المتوافقة")
+        manage_tree.heading("engine_types", text="المحركات")
+        manage_tree.heading("years", text="السنوات")
         manage_tree.heading("prix_vente", text="سعر البيع")
-        manage_tree.heading("stock", text="المخزون الحالي")
+        manage_tree.heading("stock", text="المخزون")
 
         manage_tree.pack(fill="both", expand=True, padx=10, pady=5)
 
         def load_manage_products():
             for item in manage_tree.get_children():
                 manage_tree.delete(item)
-            self.cursor.execute("SELECT id, part_name, car_model, engine_type, year, prix_vente, stock FROM products")
+            self.cursor.execute("SELECT id, part_name, car_models, engine_types, years, prix_vente, stock FROM products")
             for row in self.cursor.fetchall():
                 manage_tree.insert("", "end", values=row)
 
