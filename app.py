@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import customtkinter as ctk
 from datetime import datetime
+import os
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -27,9 +28,9 @@ class SuperPOSApp(ctk.CTk):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 barcode TEXT UNIQUE,
                 part_name TEXT,
-                car_models TEXT,   -- السيارات المتوافقة (مفصولة بفواصل)
-                engine_types TEXT, -- المحركات المتوافقة (مفصولة بفواصل)
-                years TEXT,        -- السنوات (مجال أو سنوات مفصولة بفواصل)
+                car_models TEXT,   -- السيارات المتوافقة
+                engine_types TEXT, -- المحركات المتوافقة
+                years TEXT,        -- السنوات
                 prix_achat REAL,
                 prix_vente REAL,
                 stock INTEGER
@@ -228,6 +229,39 @@ class SuperPOSApp(ctk.CTk):
             
         self.lbl_total.configure(text=f"الإجمالي: {total:.2f} DZD")
 
+    def generate_receipt(self, sale_id, date_str, total_amount):
+        """دالة لإنشاء ملف نصي بالفاتورة وفتحه تلقائياً للطباعة"""
+        filename = f"فاتورة_{sale_id}.txt"
+        
+        receipt_content = f"""
+========================================
+             CarOps Auto
+         فاتورة بيع رقم: #{sale_id}
+========================================
+التاريخ: {date_str}
+----------------------------------------
+المنتج / الموديلات           الكمية   السعر
+----------------------------------------
+"""
+        for item in self.cart:
+            receipt_content += f"{item['name'][:22]:<22}  x{item['qty']:<3}  {item['prix'] * item['qty']:.2f} DZD\n"
+
+        receipt_content += f"""----------------------------------------
+الإجمالي: {total_amount:.2f} DZD
+طريقة الدفع: نقداً
+========================================
+       شكراً لتعاملكم معنا!
+========================================
+"""
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(receipt_content)
+
+        # فتح الملف تلقائياً على نظام الويندوز لطباعته
+        try:
+            os.startfile(filename)
+        except Exception as e:
+            messagebox.showerror("خطأ", f"تعذر فتح ملف الفاتورة للطباعة: {e}")
+
     def process_payment(self):
         if not self.cart:
             messagebox.showwarning("تنبيه", "السلة فارغة!")
@@ -238,19 +272,26 @@ class SuperPOSApp(ctk.CTk):
         profit = total_vente - total_achat
         date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        # 1. حفظ عملية البيع في قاعدة البيانات
         self.cursor.execute("INSERT INTO sales (date_vente, total_vente, total_profit, methode_paiement) VALUES (?, ?, ?, ?)",
                             (date_now, total_vente, profit, "نقداً"))
+        sale_id = self.cursor.lastrowid
 
+        # 2. خصم الكميات المبيعة من المخزون
         for item in self.cart:
             self.cursor.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item['qty'], item['id']))
 
         self.conn.commit()
-        messagebox.showinfo("نجاح العملية", f"تم التسجيل بنجاح!\nالربح المحقق: {profit:.2f} DZD")
+
+        # 3. إنشاء الفاتورة وفتحها للطباعة
+        self.generate_receipt(sale_id, date_now, total_vente)
+
+        messagebox.showinfo("نجاح العملية", f"تم التسجيل بنجاح وإنشاء الفاتورة!\nالربح المحقق: {profit:.2f} DZD")
         self.cart.clear()
         self.update_cart_display()
         self.load_pos_products()
 
-    # --- 2. قسم إدارة المخزون (تعدد السيارات/المحركات/السنوات) ---
+    # --- 2. قسم إدارة المخزون ---
     def show_products_tab(self):
         self.clear_container()
 
