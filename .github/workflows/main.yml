@@ -2,254 +2,323 @@ import sqlite3
 import tkinter as tk
 from tkinter import messagebox, ttk
 import customtkinter as ctk
+from datetime import datetime
 
-ctk.set_appearance_mode("System")
+ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-class AutoPartsApp(ctk.CTk):
+class PhoneShopApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Gestion de Stock & Ventes - Pièces Auto")
-        self.geometry("1100x700")
+        self.title("SUPER_POS - إدارة تجارة الهواتف النقالة")
+        self.geometry("1250x780")
+        
         self.init_db()
-        self.cart = []
-        self.create_widgets()
+        self.setup_ui()
 
     def init_db(self):
-        self.conn = sqlite3.connect("autoparts.db")
+        self.conn = sqlite3.connect("phone_shop.db")
         self.cursor = self.conn.cursor()
+        
+        # جدول الهواتف
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pieces (
+            CREATE TABLE IF NOT EXISTS phones (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                reference TEXT UNIQUE,
-                nom TEXT,
-                prix_achat REAL,
-                prix_vente REAL,
-                quantite INTEGER,
-                emplacement TEXT
+                phone_name TEXT,
+                buy_price REAL,
+                sell_price REAL,
+                is_paid TEXT,
+                date_added TEXT
             )
         ''')
+        
+        # جدول المصاريف
         self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS compatibilites (
+            CREATE TABLE IF NOT EXISTS expenses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                piece_id INTEGER,
-                marque TEXT,
-                modele TEXT,
-                moteur TEXT,
-                annee INTEGER,
-                FOREIGN KEY (piece_id) REFERENCES pieces (id)
+                title TEXT,
+                amount REAL,
+                date_exp TEXT
             )
         ''')
         self.conn.commit()
 
-    def create_widgets(self):
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
-        self.tab_search = self.tabview.add("Recherche & Vente")
-        self.tab_add = self.tabview.add("Ajouter Pièce / Compatibilité")
-        self.setup_search_tab()
-        self.setup_add_tab()
+    def setup_ui(self):
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-    def setup_search_tab(self):
-        search_frame = ctk.CTkFrame(self.tab_search)
-        search_frame.pack(fill="x", padx=10, pady=10)
+        # الشريط الجانبي (Sidebar)
+        self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color="#1e1e2e")
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
 
-        ctk.CTkLabel(search_frame, text="Marque:").grid(row=0, column=0, padx=5, pady=5)
-        self.entry_search_marque = ctk.CTkEntry(search_frame, placeholder_text="ex: Renault")
-        self.entry_search_marque.grid(row=0, column=1, padx=5, pady=5)
+        title_lbl = ctk.CTkLabel(self.sidebar, text="PHONE_POS\nإدارة الهواتف", font=("Arial", 18, "bold"), text_color="#89b4fa")
+        title_lbl.pack(pady=25)
 
-        ctk.CTkLabel(search_frame, text="Modèle:").grid(row=0, column=2, padx=5, pady=5)
-        self.entry_search_modele = ctk.CTkEntry(search_frame, placeholder_text="ex: Symbol")
-        self.entry_search_modele.grid(row=0, column=3, padx=5, pady=5)
+        self.btn_phones = ctk.CTkButton(self.sidebar, text="📱 الهواتف والمخزون", font=("Arial", 14, "bold"), 
+                                        fg_color="#1e66f5", hover_color="#45475a", anchor="w", command=self.show_phones_tab)
+        self.btn_phones.pack(pady=8, padx=15, fill="x")
 
-        ctk.CTkLabel(search_frame, text="Moteur:").grid(row=1, column=0, padx=5, pady=5)
-        self.entry_search_moteur = ctk.CTkEntry(search_frame, placeholder_text="ex: 1.2 16V")
-        self.entry_search_moteur.grid(row=1, column=1, padx=5, pady=5)
+        self.btn_expenses = ctk.CTkButton(self.sidebar, text="💸 المصاريف", font=("Arial", 14, "bold"), 
+                                          fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_expenses_tab)
+        self.btn_expenses.pack(pady=8, padx=15, fill="x")
 
-        ctk.CTkLabel(search_frame, text="Année:").grid(row=1, column=2, padx=5, pady=5)
-        self.entry_search_annee = ctk.CTkEntry(search_frame, placeholder_text="ex: 2015")
-        self.entry_search_annee.grid(row=1, column=3, padx=5, pady=5)
+        self.btn_reports = ctk.CTkButton(self.sidebar, text="📊 الأرباح والتقارير", font=("Arial", 14, "bold"), 
+                                         fg_color="#313244", hover_color="#45475a", anchor="w", command=self.show_reports_tab)
+        self.btn_reports.pack(pady=8, padx=15, fill="x")
 
-        btn_search = ctk.CTkButton(search_frame, text="Rechercher", command=self.rechercher_pieces)
-        btn_search.grid(row=0, column=4, rowspan=2, padx=15, pady=5)
+        # الحاوية الرئيسية
+        self.main_container = ctk.CTkFrame(self, corner_radius=0, fg_color="#181825")
+        self.main_container.grid(row=0, column=1, sticky="nsew")
 
-        result_frame = ctk.CTkFrame(self.tab_search)
-        result_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.show_phones_tab()
 
-        columns = ("id", "reference", "nom", "prix", "quantite", "emplacement")
-        self.tree_results = ttk.Treeview(result_frame, columns=columns, show="headings")
-        self.tree_results.heading("id", text="ID")
-        self.tree_results.heading("reference", text="Référence")
-        self.tree_results.heading("nom", text="Nom de Pièce")
-        self.tree_results.heading("prix", text="Prix Vente (DZD)")
-        self.tree_results.heading("quantite", text="En Stock")
-        self.tree_results.heading("emplacement", text="Emplacement")
-        self.tree_results.column("id", width=40)
-        self.tree_results.pack(fill="both", expand=True, side="left")
+    def update_sidebar_buttons(self, active_btn):
+        for btn in [self.btn_phones, self.btn_expenses, self.btn_reports]:
+            btn.configure(fg_color="#313244")
+        active_btn.configure(fg_color="#1e66f5")
 
-        action_frame = ctk.CTkFrame(self.tab_search)
-        action_frame.pack(fill="x", padx=10, pady=10)
+    def clear_container(self):
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
 
-        btn_add_cart = ctk.CTkButton(action_frame, text="Ajouter au Panier", command=self.ajouter_panier)
-        btn_add_cart.pack(side="left", padx=10)
+    # --- 1. قسم إدارة الهواتف ---
+    def show_phones_tab(self):
+        self.update_sidebar_buttons(self.btn_phones)
+        self.clear_container()
 
-        btn_checkout = ctk.CTkButton(action_frame, text="Valider & Imprimer", fg_color="green", command=self.valider_vente)
-        btn_checkout.pack(side="right", padx=10)
+        top_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        top_frame.pack(fill="x", padx=15, pady=10)
 
-    def rechercher_pieces(self):
-        for item in self.tree_results.get_children():
-            self.tree_results.delete(item)
+        bottom_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        bottom_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
-        marque = self.entry_search_marque.get().strip()
-        modele = self.entry_search_modele.get().strip()
-        moteur = self.entry_search_moteur.get().strip()
-        annee = self.entry_search_annee.get().strip()
+        ctk.CTkLabel(top_frame, text="📱 تسجيل هاتف جديد", font=("Arial", 16, "bold"), text_color="#cdd6f4").grid(row=0, column=0, columnspan=4, pady=10)
 
-        query = '''
-            SELECT DISTINCT p.id, p.reference, p.nom, p.prix_vente, p.quantite, p.emplacement 
-            FROM pieces p
-            JOIN compatibilites c ON p.id = c.piece_id
-            WHERE 1=1
-        '''
-        params = []
-        if marque:
-            query += " AND c.marque LIKE ?"
-            params.append(f"%{marque}%")
-        if modele:
-            query += " AND c.modele LIKE ?"
-            params.append(f"%{modele}%")
-        if moteur:
-            query += " AND c.moteur LIKE ?"
-            params.append(f"%{moteur}%")
-        if annee:
-            query += " AND c.annee = ?"
-            params.append(annee)
+        ctk.CTkLabel(top_frame, text="اسم ومواصفات الهاتف:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+        ent_name = ctk.CTkEntry(top_frame, width=220, placeholder_text="iPhone 11 / Samsung A52")
+        ent_name.grid(row=1, column=1, padx=10, pady=5)
 
-        self.cursor.execute(query, params)
-        rows = self.cursor.fetchall()
-        for row in rows:
-            self.tree_results.insert("", "end", values=row)
+        ctk.CTkLabel(top_frame, text="سعر الشراء (رأس المال):").grid(row=1, column=2, padx=10, pady=5, sticky="e")
+        ent_buy = ctk.CTkEntry(top_frame, width=220, placeholder_text="0.00")
+        ent_buy.grid(row=1, column=3, padx=10, pady=5)
 
-    def ajouter_panier(self):
-        selected = self.tree_results.selection()
-        if not selected:
-            messagebox.showwarning("Attention", "Veuillez sélectionner une pièce.")
-            return
-        item = self.tree_results.item(selected[0])
-        values = item['values']
-        if values[4] <= 0:
-            messagebox.showerror("Erreur", "Stock épuisé pour cette pièce!")
-            return
-        self.cart.append(values)
-        messagebox.showinfo("Panier", f"Pièce '{values[2]}' ajoutée au panier.")
+        ctk.CTkLabel(top_frame, text="سعر البيع:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
+        ent_sell = ctk.CTkEntry(top_frame, width=220, placeholder_text="0.00")
+        ent_sell.grid(row=2, column=1, padx=10, pady=5)
 
-    def valider_vente(self):
-        if not self.cart:
-            messagebox.showwarning("Panier Vide", "Aucune pièce dans le panier.")
-            return
+        ctk.CTkLabel(top_frame, text="حالة الدفع:").grid(row=2, column=2, padx=10, pady=5, sticky="e")
+        combo_paid = ctk.CTkComboBox(top_frame, values=["مدفوع", "غير مدفوع"], width=220)
+        combo_paid.grid(row=2, column=3, padx=10, pady=5)
+        combo_paid.set("مدفوع")
 
-        choice_window = ctk.CTkToplevel(self)
-        choice_window.title("Format d'impression")
-        choice_window.geometry("350x180")
-        choice_window.grab_set()
+        def save_phone():
+            try:
+                name = ent_name.get().strip()
+                buy = float(ent_buy.get().strip())
+                sell = float(ent_sell.get().strip())
+                is_paid = combo_paid.get()
+                date_now = datetime.now().strftime("%Y-%m-%d")
 
-        ctk.CTkLabel(choice_window, text="Choisissez le format d'impression:").pack(pady=15)
+                if not name:
+                    messagebox.showwarning("تنبيه", "يرجى إدخال اسم الهاتف!")
+                    return
 
-        def traiter_impression(fmt):
-            for item in self.cart:
-                piece_id = item[0]
-                self.cursor.execute("UPDATE pieces SET quantite = quantite - 1 WHERE id = ?", (piece_id,))
-            self.conn.commit()
+                self.cursor.execute("INSERT INTO phones (phone_name, buy_price, sell_price, is_paid, date_added) VALUES (?, ?, ?, ?, ?)",
+                                    (name, buy, sell, is_paid, date_now))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم تسجيل الهاتف بنجاح!")
+                
+                ent_name.delete(0, 'end')
+                ent_buy.delete(0, 'end')
+                ent_sell.delete(0, 'end')
+                load_phones()
+            except Exception as e:
+                messagebox.showerror("خطأ", f"تأكد من صحة الأرقام المدخلة: {e}")
 
-            messagebox.showinfo("Succès", f"Vente enregistrée! Impression au format [{fmt}] en cours...")
-            self.cart.clear()
-            choice_window.destroy()
-            self.rechercher_pieces()
+        btn_save = ctk.CTkButton(top_frame, text="➕ إضافة الهاتف للحسابات", fg_color="#a6e3a1", text_color="#11111b", 
+                                font=("Arial", 14, "bold"), hover_color="#94e2d5", command=save_phone)
+        btn_save.grid(row=3, column=0, columnspan=4, pady=15)
 
-        ctk.CTkButton(choice_window, text="Ticket de Caisse (80mm)", command=lambda: traiter_impression("Ticket 80mm")).pack(pady=5)
-        ctk.CTkButton(choice_window, text="Facture Papier (A4 / A5)", command=lambda: traiter_impression("A4/A5")).pack(pady=5)
+        # جدول الهواتف المسجلة
+        columns = ("id", "name", "buy", "sell", "profit", "paid", "date")
+        phones_tree = ttk.Treeview(bottom_frame, columns=columns, show="headings", height=12)
+        
+        phones_tree.heading("id", text="ID")
+        phones_tree.heading("name", text="الهاتف والمواصفات")
+        phones_tree.heading("buy", text="سعر الشراء")
+        phones_tree.heading("sell", text="سعر البيع")
+        phones_tree.heading("profit", text="الفائدة (الربح)")
+        phones_tree.heading("paid", text="حالة الدفع")
+        phones_tree.heading("date", text="التاريخ")
 
-    def setup_add_tab(self):
-        frame = ctk.CTkFrame(self.tab_add)
+        phones_tree.column("id", width=40)
+        phones_tree.column("name", width=220)
+        phones_tree.column("buy", width=100)
+        phones_tree.column("sell", width=100)
+        phones_tree.column("profit", width=100)
+        phones_tree.column("paid", width=90)
+        phones_tree.column("date", width=100)
+
+        phones_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def load_phones():
+            for item in phones_tree.get_children():
+                phones_tree.delete(item)
+            self.cursor.execute("SELECT id, phone_name, buy_price, sell_price, is_paid, date_added FROM phones ORDER BY id DESC")
+            for row in self.cursor.fetchall():
+                p_id, name, buy, sell, paid, date = row
+                profit = sell - buy
+                phones_tree.insert("", "end", values=(p_id, name, f"{buy:.2f}", f"{sell:.2f}", f"{profit:.2f}", paid, date))
+
+        def delete_phone():
+            selected = phones_tree.selection()
+            if not selected:
+                messagebox.showwarning("تنبيه", "يرجى تحديد هاتف للحذف!")
+                return
+            item = phones_tree.item(selected[0])['values']
+            p_id = item[0]
+            if messagebox.askyesno("تأكيد", "هل أنت متأكد من حذف هذا السجل؟"):
+                self.cursor.execute("DELETE FROM phones WHERE id = ?", (p_id,))
+                self.conn.commit()
+                load_phones()
+
+        btn_del = ctk.CTkButton(bottom_frame, text="🗑️ حذف الهاتف المحدد", fg_color="#f38ba8", text_color="#11111b", 
+                                font=("Arial", 12, "bold"), hover_color="#e35b78", command=delete_phone)
+        btn_del.pack(pady=5)
+
+        load_phones()
+
+    # --- 2. قسم المصاريف ---
+    def show_expenses_tab(self):
+        self.update_sidebar_buttons(self.btn_expenses)
+        self.clear_container()
+
+        top_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        top_frame.pack(fill="x", padx=15, pady=10)
+
+        bottom_frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
+        bottom_frame.pack(fill="both", expand=True, padx=15, pady=10)
+
+        ctk.CTkLabel(top_frame, text="💸 تسجيل مصروف جديد (أكل، نقل، صيانة...)", font=("Arial", 16, "bold"), text_color="#cdd6f4").grid(row=0, column=0, columnspan=4, pady=10)
+
+        ctk.CTkLabel(top_frame, text="بيان المصروف:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+        ent_title = ctk.CTkEntry(top_frame, width=250, placeholder_text="مثال: مصاريف طريق / أكل")
+        ent_title.grid(row=1, column=1, padx=10, pady=5)
+
+        ctk.CTkLabel(top_frame, text="المبلغ:").grid(row=1, column=2, padx=10, pady=5, sticky="e")
+        ent_amount = ctk.CTkEntry(top_frame, width=200, placeholder_text="0.00")
+        ent_amount.grid(row=1, column=3, padx=10, pady=5)
+
+        def save_expense():
+            try:
+                title = ent_title.get().strip()
+                amount = float(ent_amount.get().strip())
+                date_now = datetime.now().strftime("%Y-%m-%d")
+
+                if not title:
+                    messagebox.showwarning("تنبيه", "يرجى إدخال بيان المصروف!")
+                    return
+
+                self.cursor.execute("INSERT INTO expenses (title, amount, date_exp) VALUES (?, ?, ?)", (title, amount, date_now))
+                self.conn.commit()
+                messagebox.showinfo("نجاح", "تم تسجيل المصروف بنجاح!")
+                ent_title.delete(0, 'end')
+                ent_amount.delete(0, 'end')
+                load_expenses()
+            except Exception as e:
+                messagebox.showerror("خطأ", f"أدخل مبلغاً صحيحاً: {e}")
+
+        btn_save_exp = ctk.CTkButton(top_frame, text="تسجيل المصروف", fg_color="#fab387", text_color="#11111b", 
+                                     font=("Arial", 14, "bold"), hover_color="#f9e2af", command=save_expense)
+        btn_save_exp.grid(row=2, column=0, columnspan=4, pady=15)
+
+        columns = ("id", "title", "amount", "date")
+        exp_tree = ttk.Treeview(bottom_frame, columns=columns, show="headings", height=12)
+        exp_tree.heading("id", text="ID")
+        exp_tree.heading("title", text="البيان")
+        exp_tree.heading("amount", text="المبلغ")
+        exp_tree.heading("date", text="التاريخ")
+        exp_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def load_expenses():
+            for item in exp_tree.get_children():
+                exp_tree.delete(item)
+            self.cursor.execute("SELECT id, title, amount, date_exp FROM expenses ORDER BY id DESC")
+            for row in self.cursor.fetchall():
+                exp_tree.insert("", "end", values=row)
+
+        load_expenses()
+
+    # --- 3. قسم التقارير والأرباح المالية ---
+    def show_reports_tab(self):
+        self.update_sidebar_buttons(self.btn_reports)
+        self.clear_container()
+
+        frame = ctk.CTkFrame(self.main_container, fg_color="#1e1e2e")
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        ctk.CTkLabel(frame, text="Référence:").grid(row=0, column=0, padx=5, pady=5)
-        self.ent_ref = ctk.CTkEntry(frame)
-        self.ent_ref.grid(row=0, column=1, padx=5, pady=5)
+        ctk.CTkLabel(frame, text="📊 لوحة الحسابات ورأس المال والفوائد", font=("Arial", 20, "bold"), text_color="#cdd6f4").pack(pady=15)
 
-        ctk.CTkLabel(frame, text="Nom de Pièce:").grid(row=0, column=2, padx=5, pady=5)
-        self.ent_nom = ctk.CTkEntry(frame)
-        self.ent_nom.grid(row=0, column=3, padx=5, pady=5)
+        # حساب البيانات من قاعدة البيانات
+        self.cursor.execute("SELECT SUM(buy_price), SUM(sell_price) FROM phones")
+        p_res = self.cursor.fetchone()
+        total_buy = p_res[0] if p_res[0] else 0.0
+        total_sell = p_res[1] if p_res[1] else 0.0
+        
+        # إجمالي الفوائد قبل المصاريف
+        total_gross_profit = total_sell - total_buy
 
-        ctk.CTkLabel(frame, text="Prix Achat:").grid(row=1, column=0, padx=5, pady=5)
-        self.ent_p_achat = ctk.CTkEntry(frame)
-        self.ent_p_achat.grid(row=1, column=1, padx=5, pady=5)
+        # حساب المصاريف الإجمالية
+        self.cursor.execute("SELECT SUM(amount) FROM expenses")
+        e_res = self.cursor.fetchone()
+        total_expenses = e_res[0] if e_res[0] else 0.0
 
-        ctk.CTkLabel(frame, text="Prix Vente:").grid(row=1, column=2, padx=5, pady=5)
-        self.ent_p_vente = ctk.CTkEntry(frame)
-        self.ent_p_vente.grid(row=1, column=3, padx=5, pady=5)
+        # صافي الربح الحقيقي بعد خصم المصاريف
+        net_profit = total_gross_profit - total_expenses
 
-        ctk.CTkLabel(frame, text="Quantité Initial:").grid(row=2, column=0, padx=5, pady=5)
-        self.ent_qty = ctk.CTkEntry(frame)
-        self.ent_qty.grid(row=2, column=1, padx=5, pady=5)
+        # تصميم البطاقات المالية
+        cards_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        cards_frame.pack(fill="x", pady=20)
 
-        ctk.CTkLabel(frame, text="Emplacement (Rayon):").grid(row=2, column=2, padx=5, pady=5)
-        self.ent_loc = ctk.CTkEntry(frame)
-        self.ent_loc.grid(row=2, column=3, padx=5, pady=5)
+        # رأس المال
+        c1 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        c1.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(c1, text="إجمالي رأس المال (الشراء)", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        ctk.CTkLabel(c1, text=f"{total_buy:.2f} DZD", font=("Arial", 18, "bold"), text_color="#89b4fa").pack(pady=10)
 
-        ctk.CTkLabel(frame, text="--- Compatibilité Véhicule ---", font=("Arial", 14, "bold")).grid(row=3, column=0, columnspan=4, pady=15)
+        # الفائدة وحدها
+        c2 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        c2.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(c2, text="إجمالي الفوائد (الأرباح الخام)", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        ctk.CTkLabel(c2, text=f"{total_gross_profit:.2f} DZD", font=("Arial", 18, "bold"), text_color="#a6e3a1").pack(pady=10)
 
-        ctk.CTkLabel(frame, text="Marque:").grid(row=4, column=0, padx=5, pady=5)
-        self.ent_c_marque = ctk.CTkEntry(frame)
-        self.ent_c_marque.grid(row=4, column=1, padx=5, pady=5)
+        # المصاريف
+        c3 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        c3.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(c3, text="إجمالي المصاريف", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        ctk.CTkLabel(c3, text=f"- {total_expenses:.2f} DZD", font=("Arial", 18, "bold"), text_color="#fab387").pack(pady=10)
 
-        ctk.CTkLabel(frame, text="Modèle:").grid(row=4, column=2, padx=5, pady=5)
-        self.ent_c_modele = ctk.CTkEntry(frame)
-        self.ent_c_modele.grid(row=4, column=3, padx=5, pady=5)
+        # صافي الربح الحقيقي
+        c4 = ctk.CTkFrame(cards_frame, fg_color="#313244", corner_radius=10)
+        c4.pack(side="left", expand=True, fill="both", padx=10, pady=10)
+        ctk.CTkLabel(c4, text="صافي الربح (بعد المصاريف)", font=("Arial", 13), text_color="#a6adc8").pack(pady=5)
+        ctk.CTkLabel(c4, text=f"{net_profit:.2f} DZD", font=("Arial", 18, "bold"), text_color="#f38ba8").pack(pady=10)
 
-        ctk.CTkLabel(frame, text="Moteur:").grid(row=5, column=0, padx=5, pady=5)
-        self.ent_c_moteur = ctk.CTkEntry(frame)
-        self.ent_c_moteur.grid(row=5, column=1, padx=5, pady=5)
+        # ملخص حالة الدفع (مدفوع / غير مدفوع)
+        self.cursor.execute("SELECT SUM(sell_price) FROM phones WHERE is_paid = 'مدفوع'")
+        paid_res = self.cursor.fetchone()[0]
+        paid_total = paid_res if paid_res else 0.0
 
-        ctk.CTkLabel(frame, text="Année:").grid(row=5, column=2, padx=5, pady=5)
-        self.ent_c_annee = ctk.CTkEntry(frame)
-        self.ent_c_annee.grid(row=5, column=3, padx=5, pady=5)
+        self.cursor.execute("SELECT SUM(sell_price) FROM phones WHERE is_paid = 'غير مدفوع'")
+        unpaid_res = self.cursor.fetchone()[0]
+        unpaid_total = unpaid_res if unpaid_res else 0.0
 
-        btn_save = ctk.CTkButton(frame, text="Enregistrer Pièce et Compatibilité", fg_color="green", command=self.sauvegarder_piece)
-        btn_save.grid(row=6, column=0, columnspan=4, pady=20)
-
-    def sauvegarder_piece(self):
-        try:
-            ref = self.ent_ref.get().strip()
-            nom = self.ent_nom.get().strip()
-            pa = float(self.ent_p_achat.get())
-            pv = float(self.ent_p_vente.get())
-            qty = int(self.ent_qty.get())
-            loc = self.ent_loc.get().strip()
-
-            marque = self.ent_c_marque.get().strip()
-            modele = self.ent_c_modele.get().strip()
-            moteur = self.ent_c_moteur.get().strip()
-            annee = int(self.ent_c_annee.get())
-
-            self.cursor.execute('''
-                INSERT INTO pieces (reference, nom, prix_achat, prix_vente, quantite, emplacement)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (ref, nom, pa, pv, qty, loc))
-
-            piece_id = self.cursor.lastrowid
-
-            self.cursor.execute('''
-                INSERT INTO compatibilites (piece_id, marque, modele, moteur, annee)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (piece_id, marque, modele, moteur, annee))
-
-            self.conn.commit()
-            messagebox.showinfo("Succès", "Pièce ajoutée avec succès!")
-
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Erreur lors de l'enregistrement: {str(e)}")
+        status_frame = ctk.CTkFrame(frame, fg_color="#313244", corner_radius=10)
+        status_frame.pack(fill="x", padx=10, pady=20)
+        
+        ctk.CTkLabel(status_frame, text=f"💰 الأموال المدفوعة الفعليّة: {paid_total:.2f} DZD    |    ⚠️ الأموال المعلقة (غير المدفوعة): {unpaid_total:.2f} DZD", 
+                     font=("Arial", 14, "bold"), text_color="#cdd6f4").pack(pady=15)
 
 if __name__ == "__main__":
-    app = AutoPartsApp()
+    app = PhoneShopApp()
     app.mainloop()
